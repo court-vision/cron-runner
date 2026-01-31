@@ -26,5 +26,5 @@ COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 # Expose health check port
 EXPOSE 8082
 
-# Default to server mode
-CMD ["/cron-runner"]
+# Default to CLI mode (single execution)
+CMD ["/cron-runner", "--once"]
