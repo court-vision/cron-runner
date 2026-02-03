@@ -16,7 +16,7 @@ type Config struct {
 	// Server settings
 	Port string
 
-	// Retry settings
+	// Retry settings (for initial job creation)
 	MaxRetries     int
 	InitialBackoff time.Duration
 	MaxBackoff     time.Duration
@@ -24,6 +24,11 @@ type Config struct {
 
 	// HTTP client settings
 	RequestTimeout time.Duration
+
+	// Job polling settings (for fire-and-forget pattern)
+	PollInitialInterval time.Duration
+	PollMaxInterval     time.Duration
+	PollMaxWaitTime     time.Duration
 
 	// Logging
 	LogLevel string
@@ -40,9 +45,13 @@ func Load() (*Config, error) {
 		InitialBackoff: getEnvDurationOrDefault("INITIAL_BACKOFF", 2*time.Second),
 		MaxBackoff:     getEnvDurationOrDefault("MAX_BACKOFF", 30*time.Second),
 		BackoffFactor:  getEnvFloatOrDefault("BACKOFF_FACTOR", 2.0),
-		RequestTimeout: getEnvDurationOrDefault("REQUEST_TIMEOUT", 3*time.Minute),
-		LogLevel:       getEnvOrDefault("LOG_LEVEL", "info"),
-		LogJSON:        getEnvBoolOrDefault("LOG_JSON", true),
+		RequestTimeout: getEnvDurationOrDefault("REQUEST_TIMEOUT", 30*time.Second),
+		// Polling settings for fire-and-forget job tracking
+		PollInitialInterval: getEnvDurationOrDefault("POLL_INITIAL_INTERVAL", 5*time.Second),
+		PollMaxInterval:     getEnvDurationOrDefault("POLL_MAX_INTERVAL", 30*time.Second),
+		PollMaxWaitTime:     getEnvDurationOrDefault("POLL_MAX_WAIT_TIME", 15*time.Minute),
+		LogLevel:            getEnvOrDefault("LOG_LEVEL", "info"),
+		LogJSON:             getEnvBoolOrDefault("LOG_JSON", true),
 	}
 
 	if err := cfg.Validate(); err != nil {

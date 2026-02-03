@@ -37,6 +37,9 @@ func main() {
 		Int("max_retries", cfg.MaxRetries).
 		Dur("initial_backoff", cfg.InitialBackoff).
 		Dur("request_timeout", cfg.RequestTimeout).
+		Dur("poll_initial_interval", cfg.PollInitialInterval).
+		Dur("poll_max_interval", cfg.PollMaxInterval).
+		Dur("poll_max_wait_time", cfg.PollMaxWaitTime).
 		Msg("cron-runner starting")
 
 	// Create pipeline client
@@ -61,17 +64,24 @@ func runOnceMode(client *pipeline.Client, log zerolog.Logger) {
 
 	if result.Success {
 		log.Info().
+			Str("job_id", result.JobID).
 			Int("attempts", result.Attempts).
 			Dur("duration", result.Duration).
 			Msg("pipeline completed successfully")
 		os.Exit(0)
 	} else {
-		log.Error().
+		logEvent := log.Error().
+			Str("job_id", result.JobID).
 			Int("attempts", result.Attempts).
 			Dur("duration", result.Duration).
-			Int("status_code", result.StatusCode).
-			Err(result.Error).
-			Msg("pipeline trigger failed")
+			Err(result.Error)
+		if result.JobDetails != nil {
+			logEvent = logEvent.
+				Int("pipelines_failed", result.JobDetails.PipelinesFailed).
+				Int("pipelines_completed", result.JobDetails.PipelinesCompleted).
+				Str("job_status", result.JobDetails.Status)
+		}
+		logEvent.Msg("pipeline trigger failed")
 		os.Exit(1)
 	}
 }
