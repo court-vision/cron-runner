@@ -13,9 +13,6 @@ type Config struct {
 	BackendURL   string
 	PipelineAuth string
 
-	// Server settings
-	Port string
-
 	// Retry settings (for initial job creation)
 	MaxRetries     int
 	InitialBackoff time.Duration
@@ -25,7 +22,7 @@ type Config struct {
 	// HTTP client settings
 	RequestTimeout time.Duration
 
-	// Job polling settings (for fire-and-forget pattern)
+	// Job polling settings (only used when not in fire-and-forget mode)
 	PollInitialInterval time.Duration
 	PollMaxInterval     time.Duration
 	PollMaxWaitTime     time.Duration
@@ -40,7 +37,6 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		BackendURL:     os.Getenv("BACKEND_URL"),
 		PipelineAuth:   os.Getenv("PIPELINE_API_TOKEN"),
-		Port:           getEnvOrDefault("PORT", "8082"),
 		MaxRetries:     getEnvIntOrDefault("MAX_RETRIES", 3),
 		InitialBackoff: getEnvDurationOrDefault("INITIAL_BACKOFF", 2*time.Second),
 		MaxBackoff:     getEnvDurationOrDefault("MAX_BACKOFF", 30*time.Second),

@@ -26,5 +26,5 @@ COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 # Expose health check port
 EXPOSE 8082
 
-# Default to CLI mode (single execution)
-CMD ["/cron-runner", "--once"]
+# Fire-and-forget: start pipelines and exit immediately
+CMD ["/cron-runner", "--fire-and-forget"]

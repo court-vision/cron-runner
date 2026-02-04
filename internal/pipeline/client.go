@@ -109,7 +109,39 @@ type jobStatusResponse struct {
 	Data    JobStatus `json:"data"`
 }
 
-// TriggerAll triggers all pipelines via the backend API using fire-and-forget pattern.
+// StartJob triggers all pipelines and returns immediately without waiting for completion.
+// Use this for true fire-and-forget behavior where you don't need to know the result.
+func (c *Client) StartJob(ctx context.Context) TriggerResult {
+	startTime := time.Now()
+
+	jobID, attempts, err := c.startJob(ctx)
+
+	result := TriggerResult{
+		Success:  err == nil,
+		JobID:    jobID,
+		Attempts: attempts,
+		Duration: time.Since(startTime),
+		Error:    err,
+	}
+
+	if err != nil {
+		c.log.Error().
+			Err(err).
+			Int("attempts", attempts).
+			Dur("duration", result.Duration).
+			Msg("failed to start pipeline job")
+	} else {
+		c.log.Info().
+			Str("job_id", jobID).
+			Int("attempts", attempts).
+			Dur("duration", result.Duration).
+			Msg("pipeline job started (fire-and-forget)")
+	}
+
+	return result
+}
+
+// TriggerAll triggers all pipelines via the backend API and polls until completion.
 // It starts the job, then polls for completion.
 func (c *Client) TriggerAll(ctx context.Context) TriggerResult {
 	startTime := time.Now()
