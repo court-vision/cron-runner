@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"os"
 
 	"cron-runner/internal/config"
@@ -13,10 +12,6 @@ import (
 )
 
 func main() {
-	// Parse command line flags
-	fireAndForget := flag.Bool("fire-and-forget", false, "Start pipelines and exit immediately without waiting for completion")
-	flag.Parse()
-
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
@@ -31,7 +26,7 @@ func main() {
 		Int("max_retries", cfg.MaxRetries).
 		Dur("initial_backoff", cfg.InitialBackoff).
 		Dur("request_timeout", cfg.RequestTimeout).
-		Bool("fire_and_forget", *fireAndForget).
+		Bool("fire_and_forget", cfg.FireAndForget).
 		Msg("cron-runner starting")
 
 	// Create pipeline client
@@ -39,11 +34,11 @@ func main() {
 
 	ctx := context.Background()
 
-	if *fireAndForget {
+	if cfg.FireAndForget {
 		// Fire-and-forget: start job and exit immediately
 		runFireAndForget(ctx, pipelineClient, log)
 	} else {
-		// Default: start job and poll until completion
+		// Polling: start job and poll until completion
 		runWithPolling(ctx, pipelineClient, log)
 	}
 }

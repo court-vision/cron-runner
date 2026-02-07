@@ -26,5 +26,6 @@ COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 # Expose health check port
 EXPOSE 8082
 
-# Fire-and-forget: start pipelines and exit immediately
-CMD ["/cron-runner", "--fire-and-forget"]
+# Fire-and-forget by default (FIRE_AND_FORGET=true)
+# Set FIRE_AND_FORGET=false to use polling mode instead
+CMD ["/cron-runner"]

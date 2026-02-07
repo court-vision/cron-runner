@@ -13,6 +13,9 @@ type Config struct {
 	BackendURL   string
 	PipelineAuth string
 
+	// Run mode
+	FireAndForget bool
+
 	// Retry settings (for initial job creation)
 	MaxRetries     int
 	InitialBackoff time.Duration
@@ -37,6 +40,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		BackendURL:     os.Getenv("BACKEND_URL"),
 		PipelineAuth:   os.Getenv("PIPELINE_API_TOKEN"),
+		FireAndForget:  getEnvBoolOrDefault("FIRE_AND_FORGET", true),
 		MaxRetries:     getEnvIntOrDefault("MAX_RETRIES", 3),
 		InitialBackoff: getEnvDurationOrDefault("INITIAL_BACKOFF", 2*time.Second),
 		MaxBackoff:     getEnvDurationOrDefault("MAX_BACKOFF", 30*time.Second),
