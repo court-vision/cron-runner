@@ -109,6 +109,61 @@ type jobStatusResponse struct {
 	Data    JobStatus `json:"data"`
 }
 
+// TriggerEndpoint POSTs to a custom endpoint path and returns immediately.
+// Use this for fire-and-forget triggers like alert mode.
+func (c *Client) TriggerEndpoint(ctx context.Context, endpoint string) TriggerResult {
+	startTime := time.Now()
+	url := c.baseURL + endpoint
+
+	c.log.Info().
+		Str("url", url).
+		Msg("triggering endpoint")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return TriggerResult{
+			Duration: time.Since(startTime),
+			Error:    fmt.Errorf("failed to create request: %w", err),
+		}
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.authToken)
+
+	result := retry.Do(ctx, c.httpClient, req, c.retryCfg, c.log)
+
+	triggerResult := TriggerResult{
+		Attempts: result.Attempts,
+		Duration: time.Since(startTime),
+	}
+
+	if result.FinalError != nil {
+		triggerResult.Error = fmt.Errorf("failed to trigger endpoint: %w", result.FinalError)
+		c.log.Error().
+			Err(triggerResult.Error).
+			Str("endpoint", endpoint).
+			Int("attempts", result.Attempts).
+			Dur("duration", triggerResult.Duration).
+			Msg("failed to trigger endpoint")
+		return triggerResult
+	}
+
+	if result.Response != nil {
+		result.Response.Body.Close()
+		triggerResult.StatusCode = result.Response.StatusCode
+	}
+
+	triggerResult.Success = true
+	c.log.Info().
+		Str("endpoint", endpoint).
+		Int("attempts", result.Attempts).
+		Int("status_code", triggerResult.StatusCode).
+		Dur("duration", triggerResult.Duration).
+		Msg("endpoint triggered successfully")
+
+	return triggerResult
+}
+
 // StartJob triggers all pipelines and returns immediately without waiting for completion.
 // Use this for true fire-and-forget behavior where you don't need to know the result.
 func (c *Client) StartJob(ctx context.Context) TriggerResult {

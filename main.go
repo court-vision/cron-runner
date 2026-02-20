@@ -27,6 +27,7 @@ func main() {
 		Dur("initial_backoff", cfg.InitialBackoff).
 		Dur("request_timeout", cfg.RequestTimeout).
 		Bool("fire_and_forget", cfg.FireAndForget).
+		Bool("alert_mode", cfg.AlertMode).
 		Msg("cron-runner starting")
 
 	// Create pipeline client
@@ -34,12 +35,40 @@ func main() {
 
 	ctx := context.Background()
 
-	if cfg.FireAndForget {
+	if cfg.AlertMode {
+		// Alert mode: trigger the lineup alerts endpoint and exit
+		runAlertMode(ctx, pipelineClient, cfg.AlertEndpoint, log)
+	} else if cfg.FireAndForget {
 		// Fire-and-forget: start job and exit immediately
 		runFireAndForget(ctx, pipelineClient, log)
 	} else {
 		// Polling: start job and poll until completion
 		runWithPolling(ctx, pipelineClient, log)
+	}
+}
+
+// runAlertMode triggers the lineup alerts endpoint and exits.
+func runAlertMode(ctx context.Context, client *pipeline.Client, endpoint string, log zerolog.Logger) {
+	log.Info().
+		Str("endpoint", endpoint).
+		Msg("alert_mode_triggered")
+
+	result := client.TriggerEndpoint(ctx, endpoint)
+
+	if result.Success {
+		log.Info().
+			Int("attempts", result.Attempts).
+			Int("status_code", result.StatusCode).
+			Dur("duration", result.Duration).
+			Msg("lineup alert triggered successfully")
+		os.Exit(0)
+	} else {
+		log.Error().
+			Int("attempts", result.Attempts).
+			Dur("duration", result.Duration).
+			Err(result.Error).
+			Msg("failed to trigger lineup alert")
+		os.Exit(1)
 	}
 }
 
