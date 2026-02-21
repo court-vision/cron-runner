@@ -16,12 +16,12 @@ import (
 
 // Client handles communication with the backend pipeline API.
 type Client struct {
-	httpClient  *http.Client
-	baseURL     string
-	authToken   string
-	retryCfg    retry.Config
-	pollCfg     PollConfig
-	log         zerolog.Logger
+	httpClient *http.Client
+	baseURL    string
+	authToken  string
+	retryCfg   retry.Config
+	pollCfg    PollConfig
+	log        zerolog.Logger
 }
 
 // PollConfig holds settings for job status polling.
@@ -109,6 +109,15 @@ type jobStatusResponse struct {
 	Data    JobStatus `json:"data"`
 }
 
+const endpointErrorBodyMaxLen = 512
+
+func truncateForLog(body string, maxLen int) string {
+	if len(body) <= maxLen {
+		return body
+	}
+	return body[:maxLen] + "...(truncated)"
+}
+
 // TriggerEndpoint POSTs to a custom endpoint path and returns immediately.
 // Use this for fire-and-forget triggers like alert mode.
 func (c *Client) TriggerEndpoint(ctx context.Context, endpoint string) TriggerResult {
@@ -149,8 +158,44 @@ func (c *Client) TriggerEndpoint(ctx context.Context, endpoint string) TriggerRe
 	}
 
 	if result.Response != nil {
-		result.Response.Body.Close()
 		triggerResult.StatusCode = result.Response.StatusCode
+		bodyBytes, readErr := io.ReadAll(result.Response.Body)
+		result.Response.Body.Close()
+		if readErr != nil {
+			triggerResult.Error = fmt.Errorf("failed to read endpoint response body: %w", readErr)
+			c.log.Error().
+				Err(triggerResult.Error).
+				Str("endpoint", endpoint).
+				Int("status_code", triggerResult.StatusCode).
+				Msg("failed to read endpoint response")
+			return triggerResult
+		}
+		triggerResult.ResponseBody = string(bodyBytes)
+	} else {
+		triggerResult.Error = fmt.Errorf("no response received from endpoint")
+		c.log.Error().
+			Err(triggerResult.Error).
+			Str("endpoint", endpoint).
+			Msg("failed to trigger endpoint")
+		return triggerResult
+	}
+
+	if triggerResult.StatusCode < 200 || triggerResult.StatusCode >= 300 {
+		bodySnippet := truncateForLog(triggerResult.ResponseBody, endpointErrorBodyMaxLen)
+		triggerResult.Error = fmt.Errorf(
+			"endpoint returned status %d: %s",
+			triggerResult.StatusCode,
+			bodySnippet,
+		)
+		c.log.Error().
+			Err(triggerResult.Error).
+			Str("endpoint", endpoint).
+			Int("attempts", result.Attempts).
+			Int("status_code", triggerResult.StatusCode).
+			Str("response_body", bodySnippet).
+			Dur("duration", triggerResult.Duration).
+			Msg("endpoint returned non-success status")
+		return triggerResult
 	}
 
 	triggerResult.Success = true
@@ -218,7 +263,7 @@ func (c *Client) TriggerAll(ctx context.Context) TriggerResult {
 
 	// Step 2: Poll for completion
 	jobStatus, err := c.pollJobCompletion(ctx, jobID)
-	
+
 	result := TriggerResult{
 		JobID:      jobID,
 		Attempts:   attempts,
