@@ -26,9 +26,7 @@ func main() {
 		Int("max_retries", cfg.MaxRetries).
 		Dur("initial_backoff", cfg.InitialBackoff).
 		Dur("request_timeout", cfg.RequestTimeout).
-		Bool("fire_and_forget", cfg.FireAndForget).
-		Bool("alert_mode", cfg.AlertMode).
-		Bool("post_game_mode", cfg.PostGameMode).
+		Str("job", cfg.Job).
 		Msg("cron-runner starting")
 
 	// Create pipeline client
@@ -36,17 +34,14 @@ func main() {
 
 	ctx := context.Background()
 
-	if cfg.PostGameMode {
-		// Post-game mode: trigger the post-game pipeline endpoint and exit
-		runPostGameMode(ctx, pipelineClient, cfg.PostGameEndpoint, log)
-	} else if cfg.AlertMode {
-		// Alert mode: trigger the lineup alerts endpoint and exit
-		runAlertMode(ctx, pipelineClient, cfg.AlertEndpoint, log)
-	} else if cfg.FireAndForget {
-		// Fire-and-forget: start job and exit immediately
+	switch cfg.Job {
+	case config.JobPostGame:
+		runPostGameMode(ctx, pipelineClient, cfg.Endpoint, log)
+	case config.JobAlert:
+		runAlertMode(ctx, pipelineClient, cfg.Endpoint, log)
+	case config.JobFireAndForget:
 		runFireAndForget(ctx, pipelineClient, log)
-	} else {
-		// Polling: start job and poll until completion
+	case config.JobPipeline:
 		runWithPolling(ctx, pipelineClient, log)
 	}
 }
