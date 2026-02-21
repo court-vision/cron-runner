@@ -14,9 +14,11 @@ type Config struct {
 	PipelineAuth string
 
 	// Run mode
-	FireAndForget bool
-	AlertMode     bool
-	AlertEndpoint string
+	FireAndForget    bool
+	AlertMode        bool
+	AlertEndpoint    string
+	PostGameMode     bool
+	PostGameEndpoint string
 
 	// Retry settings (for initial job creation)
 	MaxRetries     int
@@ -42,9 +44,11 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		BackendURL:     getEnvOrDefault("BACKEND_URL", "https://api.courtvision.dev"),
 		PipelineAuth:   os.Getenv("PIPELINE_API_TOKEN"),
-		FireAndForget:  getEnvBoolOrDefault("FIRE_AND_FORGET", true),
-		AlertMode:      getEnvBoolOrDefault("ALERT_MODE", false),
-		AlertEndpoint:  getEnvOrDefault("ALERT_ENDPOINT", "/v1/internal/pipelines/lineup-alerts"),
+		FireAndForget:    getEnvBoolOrDefault("FIRE_AND_FORGET", true),
+		AlertMode:        getEnvBoolOrDefault("ALERT_MODE", false),
+		AlertEndpoint:    getEnvOrDefault("ALERT_ENDPOINT", "/v1/internal/pipelines/lineup-alerts"),
+		PostGameMode:     getEnvBoolOrDefault("POST_GAME_MODE", false),
+		PostGameEndpoint: getEnvOrDefault("POST_GAME_ENDPOINT", "/v1/internal/pipelines/post-game"),
 		MaxRetries:     getEnvIntOrDefault("MAX_RETRIES", 3),
 		InitialBackoff: getEnvDurationOrDefault("INITIAL_BACKOFF", 2*time.Second),
 		MaxBackoff:     getEnvDurationOrDefault("MAX_BACKOFF", 30*time.Second),

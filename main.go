@@ -28,6 +28,7 @@ func main() {
 		Dur("request_timeout", cfg.RequestTimeout).
 		Bool("fire_and_forget", cfg.FireAndForget).
 		Bool("alert_mode", cfg.AlertMode).
+		Bool("post_game_mode", cfg.PostGameMode).
 		Msg("cron-runner starting")
 
 	// Create pipeline client
@@ -35,7 +36,10 @@ func main() {
 
 	ctx := context.Background()
 
-	if cfg.AlertMode {
+	if cfg.PostGameMode {
+		// Post-game mode: trigger the post-game pipeline endpoint and exit
+		runPostGameMode(ctx, pipelineClient, cfg.PostGameEndpoint, log)
+	} else if cfg.AlertMode {
 		// Alert mode: trigger the lineup alerts endpoint and exit
 		runAlertMode(ctx, pipelineClient, cfg.AlertEndpoint, log)
 	} else if cfg.FireAndForget {
@@ -44,6 +48,31 @@ func main() {
 	} else {
 		// Polling: start job and poll until completion
 		runWithPolling(ctx, pipelineClient, log)
+	}
+}
+
+// runPostGameMode triggers the post-game pipeline endpoint and exits.
+func runPostGameMode(ctx context.Context, client *pipeline.Client, endpoint string, log zerolog.Logger) {
+	log.Info().
+		Str("endpoint", endpoint).
+		Msg("post_game_mode_triggered")
+
+	result := client.TriggerEndpoint(ctx, endpoint)
+
+	if result.Success {
+		log.Info().
+			Int("attempts", result.Attempts).
+			Int("status_code", result.StatusCode).
+			Dur("duration", result.Duration).
+			Msg("post-game pipeline endpoint triggered successfully")
+		os.Exit(0)
+	} else {
+		log.Error().
+			Int("attempts", result.Attempts).
+			Dur("duration", result.Duration).
+			Err(result.Error).
+			Msg("failed to trigger post-game pipeline endpoint")
+		os.Exit(1)
 	}
 }
 
