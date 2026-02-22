@@ -209,6 +209,89 @@ func (c *Client) TriggerEndpoint(ctx context.Context, endpoint string) TriggerRe
 	return triggerResult
 }
 
+// FetchEndpoint GETs a custom endpoint path and returns the response body.
+// Use this for read-only data fetches like the schedule endpoint.
+func (c *Client) FetchEndpoint(ctx context.Context, endpoint string) TriggerResult {
+	startTime := time.Now()
+	url := c.baseURL + endpoint
+
+	c.log.Info().
+		Str("url", url).
+		Msg("fetching endpoint")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return TriggerResult{
+			Duration: time.Since(startTime),
+			Error:    fmt.Errorf("failed to create request: %w", err),
+		}
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.authToken)
+
+	result := retry.Do(ctx, c.httpClient, req, c.retryCfg, c.log)
+
+	triggerResult := TriggerResult{
+		Attempts: result.Attempts,
+		Duration: time.Since(startTime),
+	}
+
+	if result.FinalError != nil {
+		triggerResult.Error = fmt.Errorf("failed to fetch endpoint: %w", result.FinalError)
+		c.log.Error().
+			Err(triggerResult.Error).
+			Str("endpoint", endpoint).
+			Int("attempts", result.Attempts).
+			Dur("duration", triggerResult.Duration).
+			Msg("failed to fetch endpoint")
+		return triggerResult
+	}
+
+	if result.Response != nil {
+		triggerResult.StatusCode = result.Response.StatusCode
+		bodyBytes, readErr := io.ReadAll(result.Response.Body)
+		result.Response.Body.Close()
+		if readErr != nil {
+			triggerResult.Error = fmt.Errorf("failed to read fetch response body: %w", readErr)
+			c.log.Error().
+				Err(triggerResult.Error).
+				Str("endpoint", endpoint).
+				Int("status_code", triggerResult.StatusCode).
+				Msg("failed to read fetch response")
+			return triggerResult
+		}
+		triggerResult.ResponseBody = string(bodyBytes)
+	} else {
+		triggerResult.Error = fmt.Errorf("no response received from endpoint")
+		return triggerResult
+	}
+
+	if triggerResult.StatusCode < 200 || triggerResult.StatusCode >= 300 {
+		bodySnippet := truncateForLog(triggerResult.ResponseBody, endpointErrorBodyMaxLen)
+		triggerResult.Error = fmt.Errorf(
+			"endpoint returned status %d: %s",
+			triggerResult.StatusCode,
+			bodySnippet,
+		)
+		c.log.Error().
+			Err(triggerResult.Error).
+			Str("endpoint", endpoint).
+			Int("status_code", triggerResult.StatusCode).
+			Msg("fetch returned non-success status")
+		return triggerResult
+	}
+
+	triggerResult.Success = true
+	c.log.Info().
+		Str("endpoint", endpoint).
+		Int("attempts", result.Attempts).
+		Int("status_code", triggerResult.StatusCode).
+		Dur("duration", triggerResult.Duration).
+		Msg("endpoint fetched successfully")
+
+	return triggerResult
+}
+
 // StartJob triggers all pipelines and returns immediately without waiting for completion.
 // Use this for true fire-and-forget behavior where you don't need to know the result.
 func (c *Client) StartJob(ctx context.Context) TriggerResult {

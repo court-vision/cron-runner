@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
+	"time"
 
 	"cron-runner/internal/config"
 	"cron-runner/internal/logger"
@@ -43,6 +45,8 @@ func main() {
 		runFireAndForget(ctx, pipelineClient, log)
 	case config.JobPipeline:
 		runWithPolling(ctx, pipelineClient, log)
+	case config.JobLive:
+		runLiveMode(ctx, pipelineClient, cfg, log)
 	}
 }
 
@@ -116,6 +120,147 @@ func runFireAndForget(ctx context.Context, client *pipeline.Client, log zerolog.
 			Err(result.Error).
 			Msg("failed to start pipeline job")
 		os.Exit(1)
+	}
+}
+
+// runLiveMode polls the live stats endpoint every LiveLoopInterval until all games
+// are complete or the safety timeout (LiveMaxDuration) is reached.
+//
+// On startup it queries the schedule endpoint to find today's first tip-off
+// and sleeps until 30 minutes before game time. This means the external cron
+// can fire at a fixed early time (e.g. 8am ET) and the container handles its
+// own wake-up — no hardcoded per-day scheduling required.
+func runLiveMode(ctx context.Context, client *pipeline.Client, cfg *config.Config, log zerolog.Logger) {
+	endpoint := cfg.Endpoint
+
+	log.Info().
+		Str("endpoint", endpoint).
+		Str("schedule_endpoint", cfg.LiveScheduleEndpoint).
+		Dur("loop_interval", cfg.LiveLoopInterval).
+		Dur("max_duration", cfg.LiveMaxDuration).
+		Msg("live_mode_started")
+
+	// Safety timeout: prevents zombie containers if something goes wrong.
+	// Default is 16h to cover the widest possible game window (morning to late night).
+	ctx, cancel := context.WithTimeout(ctx, cfg.LiveMaxDuration)
+	defer cancel()
+
+	// scheduleResponse mirrors the JSON shape of GET /v1/live/schedule/today
+	type scheduleResponse struct {
+		Data struct {
+			HasGames  bool   `json:"has_games"`
+			WakeAtET  string `json:"wake_at_et"`
+		} `json:"data"`
+	}
+
+	// liveStatsResponse mirrors the JSON shape of POST /v1/internal/pipelines/live-stats
+	type liveStatsResponse struct {
+		Data struct {
+			AllGamesComplete bool `json:"all_games_complete"`
+		} `json:"data"`
+	}
+
+	// Step 1: Fetch today's schedule and sleep until the pregame window.
+	schedResult := client.FetchEndpoint(ctx, cfg.LiveScheduleEndpoint)
+	if !schedResult.Success {
+		log.Warn().
+			Err(schedResult.Error).
+			Msg("schedule_fetch_failed_starting_immediately")
+	} else {
+		var sched scheduleResponse
+		if err := json.Unmarshal([]byte(schedResult.ResponseBody), &sched); err != nil {
+			log.Warn().Err(err).Msg("schedule_parse_failed_starting_immediately")
+		} else if !sched.Data.HasGames {
+			log.Info().Msg("no_games_today_exiting")
+			os.Exit(0)
+		} else if sched.Data.WakeAtET != "" {
+			wakeAt, err := time.Parse(time.RFC3339, sched.Data.WakeAtET)
+			if err != nil {
+				log.Warn().Err(err).Str("wake_at_raw", sched.Data.WakeAtET).Msg("wake_time_parse_failed_starting_immediately")
+			} else {
+				sleepDur := time.Until(wakeAt)
+				if sleepDur > 0 {
+					log.Info().
+						Time("wake_at", wakeAt).
+						Dur("sleep_duration", sleepDur).
+						Msg("sleeping_until_pregame_window")
+
+					select {
+					case <-ctx.Done():
+						log.Info().Msg("context_cancelled_during_pregame_sleep")
+						os.Exit(0)
+					case <-time.After(sleepDur):
+					}
+
+					log.Info().Msg("pregame_sleep_complete_starting_loop")
+				} else {
+					log.Info().
+						Time("wake_at", wakeAt).
+						Msg("wake_time_already_past_starting_loop_immediately")
+				}
+			}
+		}
+	}
+
+	// Step 2: Poll the live-stats endpoint until all games are complete.
+
+	// triggerOnce fires one request and returns true if all games are complete.
+	triggerOnce := func() bool {
+		result := client.TriggerEndpoint(ctx, endpoint)
+
+		if !result.Success {
+			// Log but continue looping — transient errors shouldn't stop the loop
+			log.Warn().
+				Err(result.Error).
+				Int("attempts", result.Attempts).
+				Dur("duration", result.Duration).
+				Msg("live_trigger_failed_continuing")
+			return false
+		}
+
+		log.Info().
+			Int("status_code", result.StatusCode).
+			Int("attempts", result.Attempts).
+			Dur("duration", result.Duration).
+			Msg("live_trigger_success")
+
+		// Parse response to detect completion signal
+		var resp liveStatsResponse
+		if err := json.Unmarshal([]byte(result.ResponseBody), &resp); err != nil {
+			log.Warn().
+				Err(err).
+				Msg("live_response_parse_failed_continuing")
+			return false
+		}
+
+		if resp.Data.AllGamesComplete {
+			log.Info().Msg("all_games_complete_exiting")
+			return true
+		}
+
+		return false
+	}
+
+	// Fire immediately before the first tick
+	if triggerOnce() {
+		os.Exit(0)
+	}
+
+	ticker := time.NewTicker(cfg.LiveLoopInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().
+				Err(ctx.Err()).
+				Msg("live_mode_context_done_exiting")
+			os.Exit(0)
+		case <-ticker.C:
+			if triggerOnce() {
+				os.Exit(0)
+			}
+		}
 	}
 }
 

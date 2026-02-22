@@ -14,6 +14,7 @@ const (
 	JobFireAndForget = "fire-and-forget"
 	JobAlert         = "alert"
 	JobPostGame      = "post-game"
+	JobLive          = "live"
 )
 
 // Config holds all configuration for the cron-runner service.
@@ -40,6 +41,11 @@ type Config struct {
 	PollMaxInterval     time.Duration
 	PollMaxWaitTime     time.Duration
 
+	// Live polling settings (only used for the live job)
+	LiveLoopInterval    time.Duration
+	LiveMaxDuration     time.Duration
+	LiveScheduleEndpoint string
+
 	// Logging
 	LogLevel string
 	LogJSON  bool
@@ -56,6 +62,8 @@ func Load() (*Config, error) {
 		defaultEndpoint = "/v1/internal/pipelines/lineup-alerts"
 	case JobPostGame:
 		defaultEndpoint = "/v1/internal/pipelines/post-game"
+	case JobLive:
+		defaultEndpoint = "/v1/internal/pipelines/live-stats"
 	}
 
 	cfg := &Config{
@@ -71,6 +79,9 @@ func Load() (*Config, error) {
 		PollInitialInterval: getEnvDurationOrDefault("POLL_INITIAL_INTERVAL", 5*time.Second),
 		PollMaxInterval:     getEnvDurationOrDefault("POLL_MAX_INTERVAL", 30*time.Second),
 		PollMaxWaitTime:     getEnvDurationOrDefault("POLL_MAX_WAIT_TIME", 15*time.Minute),
+		LiveLoopInterval:     getEnvDurationOrDefault("LIVE_LOOP_INTERVAL", 60*time.Second),
+		LiveMaxDuration:      getEnvDurationOrDefault("LIVE_MAX_DURATION", 16*time.Hour),
+		LiveScheduleEndpoint: getEnvOrDefault("LIVE_SCHEDULE_ENDPOINT", "/v1/live/schedule/today"),
 		LogLevel:            getEnvOrDefault("LOG_LEVEL", "info"),
 		LogJSON:             getEnvBoolOrDefault("LOG_JSON", true),
 	}
@@ -91,10 +102,10 @@ func (c *Config) Validate() error {
 		return errors.New("PIPELINE_API_TOKEN environment variable is required")
 	}
 	switch c.Job {
-	case JobPipeline, JobFireAndForget, JobAlert, JobPostGame:
+	case JobPipeline, JobFireAndForget, JobAlert, JobPostGame, JobLive:
 		// valid
 	default:
-		return fmt.Errorf("unknown JOB %q: must be one of pipeline, fire-and-forget, alert, post-game", c.Job)
+		return fmt.Errorf("unknown JOB %q: must be one of pipeline, fire-and-forget, alert, post-game, live", c.Job)
 	}
 	return nil
 }
