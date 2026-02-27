@@ -79,7 +79,7 @@ func Load() (*Config, error) {
 		PollInitialInterval: getEnvDurationOrDefault("POLL_INITIAL_INTERVAL", 5*time.Second),
 		PollMaxInterval:     getEnvDurationOrDefault("POLL_MAX_INTERVAL", 30*time.Second),
 		PollMaxWaitTime:     getEnvDurationOrDefault("POLL_MAX_WAIT_TIME", 15*time.Minute),
-		LiveLoopInterval:     getEnvDurationOrDefault("LIVE_LOOP_INTERVAL", 60*time.Second),
+		LiveLoopInterval:     getEnvDurationOrDefault("LIVE_LOOP_INTERVAL", 30*time.Second),
 		LiveMaxDuration:      getEnvDurationOrDefault("LIVE_MAX_DURATION", 16*time.Hour),
 		LiveScheduleEndpoint: getEnvOrDefault("LIVE_SCHEDULE_ENDPOINT", "/v1/live/schedule/today"),
 		LogLevel:            getEnvOrDefault("LOG_LEVEL", "info"),
