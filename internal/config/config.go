@@ -67,23 +67,23 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		BackendURL:          getEnvOrDefault("BACKEND_URL", "https://api.courtvision.dev"),
-		PipelineAuth:        os.Getenv("PIPELINE_API_TOKEN"),
-		Job:                 job,
-		Endpoint:            getEnvOrDefault("ENDPOINT", defaultEndpoint),
-		MaxRetries:          getEnvIntOrDefault("MAX_RETRIES", 3),
-		InitialBackoff:      getEnvDurationOrDefault("INITIAL_BACKOFF", 2*time.Second),
-		MaxBackoff:          getEnvDurationOrDefault("MAX_BACKOFF", 30*time.Second),
-		BackoffFactor:       getEnvFloatOrDefault("BACKOFF_FACTOR", 2.0),
-		RequestTimeout:      getEnvDurationOrDefault("REQUEST_TIMEOUT", 30*time.Second),
-		PollInitialInterval: getEnvDurationOrDefault("POLL_INITIAL_INTERVAL", 5*time.Second),
-		PollMaxInterval:     getEnvDurationOrDefault("POLL_MAX_INTERVAL", 30*time.Second),
-		PollMaxWaitTime:     getEnvDurationOrDefault("POLL_MAX_WAIT_TIME", 15*time.Minute),
+		BackendURL:           getEnvOrDefault("BACKEND_URL", "https://api.courtvision.dev"),
+		PipelineAuth:         os.Getenv("PIPELINE_API_TOKEN"),
+		Job:                  job,
+		Endpoint:             getEnvOrDefault("ENDPOINT", defaultEndpoint),
+		MaxRetries:           getEnvIntOrDefault("MAX_RETRIES", 3),
+		InitialBackoff:       getEnvDurationOrDefault("INITIAL_BACKOFF", 2*time.Second),
+		MaxBackoff:           getEnvDurationOrDefault("MAX_BACKOFF", 30*time.Second),
+		BackoffFactor:        getEnvFloatOrDefault("BACKOFF_FACTOR", 2.0),
+		RequestTimeout:       getEnvDurationOrDefault("REQUEST_TIMEOUT", 30*time.Second),
+		PollInitialInterval:  getEnvDurationOrDefault("POLL_INITIAL_INTERVAL", 5*time.Second),
+		PollMaxInterval:      getEnvDurationOrDefault("POLL_MAX_INTERVAL", 30*time.Second),
+		PollMaxWaitTime:      getEnvDurationOrDefault("POLL_MAX_WAIT_TIME", 15*time.Minute),
 		LiveLoopInterval:     getEnvDurationOrDefault("LIVE_LOOP_INTERVAL", 30*time.Second),
 		LiveMaxDuration:      getEnvDurationOrDefault("LIVE_MAX_DURATION", 16*time.Hour),
 		LiveScheduleEndpoint: getEnvOrDefault("LIVE_SCHEDULE_ENDPOINT", "/v1/live/schedule/today"),
-		LogLevel:            getEnvOrDefault("LOG_LEVEL", "info"),
-		LogJSON:             getEnvBoolOrDefault("LOG_JSON", true),
+		LogLevel:             getEnvOrDefault("LOG_LEVEL", "info"),
+		LogJSON:              getEnvBoolOrDefault("LOG_JSON", true),
 	}
 
 	if err := cfg.Validate(); err != nil {
