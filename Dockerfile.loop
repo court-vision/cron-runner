@@ -25,6 +25,9 @@ COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 EXPOSE 8082
 
-ENV JOB=post-game
+# Long-running loop: POSTs to ENDPOINT on each tick until data.done == true.
+# Optionally set LOOP_SCHEDULE_ENDPOINT to pre-check schedule and sleep until start time.
+# Configure ENDPOINT and LOOP_SCHEDULE_ENDPOINT via Railway env vars.
+ENV JOB=loop
 
 CMD ["/cron-runner"]

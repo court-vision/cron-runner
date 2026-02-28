@@ -26,8 +26,8 @@ COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 # Expose health check port
 EXPOSE 8082
 
-# Default job is pipeline (polling mode). Override with JOB env var.
-# Valid values: pipeline, fire-and-forget, alert, post-game
-ENV JOB=pipeline
+# Poll mode: POST to ENDPOINT to start a job, then poll until completion.
+# Configure ENDPOINT via Railway env var.
+ENV JOB=poll
 
 CMD ["/cron-runner"]

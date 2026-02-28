@@ -10,11 +10,9 @@ import (
 
 // Valid job types.
 const (
-	JobPipeline      = "pipeline"
-	JobFireAndForget = "fire-and-forget"
-	JobAlert         = "alert"
-	JobPostGame      = "post-game"
-	JobLive          = "live"
+	JobTrigger = "trigger"
+	JobPoll    = "poll"
+	JobLoop    = "loop"
 )
 
 // Config holds all configuration for the cron-runner service.
@@ -36,15 +34,15 @@ type Config struct {
 	// HTTP client settings
 	RequestTimeout time.Duration
 
-	// Job polling settings (only used for the pipeline job)
+	// Job polling settings (only used for the poll job)
 	PollInitialInterval time.Duration
 	PollMaxInterval     time.Duration
 	PollMaxWaitTime     time.Duration
 
-	// Live polling settings (only used for the live job)
-	LiveLoopInterval    time.Duration
-	LiveMaxDuration     time.Duration
-	LiveScheduleEndpoint string
+	// Loop settings (only used for the loop job)
+	LoopInterval         time.Duration
+	LoopMaxDuration      time.Duration
+	LoopScheduleEndpoint string
 
 	// Logging
 	LogLevel string
@@ -53,24 +51,11 @@ type Config struct {
 
 // Load reads configuration from environment variables with sensible defaults.
 func Load() (*Config, error) {
-	job := getEnvOrDefault("JOB", JobPipeline)
-
-	// Each endpoint-based job has a sensible default; ENDPOINT overrides it.
-	var defaultEndpoint string
-	switch job {
-	case JobAlert:
-		defaultEndpoint = "/v1/internal/pipelines/lineup-alerts"
-	case JobPostGame:
-		defaultEndpoint = "/v1/internal/pipelines/post-game"
-	case JobLive:
-		defaultEndpoint = "/v1/internal/pipelines/live-stats"
-	}
-
 	cfg := &Config{
 		BackendURL:           getEnvOrDefault("BACKEND_URL", "https://api.courtvision.dev"),
 		PipelineAuth:         os.Getenv("PIPELINE_API_TOKEN"),
-		Job:                  job,
-		Endpoint:             getEnvOrDefault("ENDPOINT", defaultEndpoint),
+		Job:                  getEnvOrDefault("JOB", JobPoll),
+		Endpoint:             os.Getenv("ENDPOINT"),
 		MaxRetries:           getEnvIntOrDefault("MAX_RETRIES", 3),
 		InitialBackoff:       getEnvDurationOrDefault("INITIAL_BACKOFF", 2*time.Second),
 		MaxBackoff:           getEnvDurationOrDefault("MAX_BACKOFF", 30*time.Second),
@@ -79,9 +64,9 @@ func Load() (*Config, error) {
 		PollInitialInterval:  getEnvDurationOrDefault("POLL_INITIAL_INTERVAL", 5*time.Second),
 		PollMaxInterval:      getEnvDurationOrDefault("POLL_MAX_INTERVAL", 30*time.Second),
 		PollMaxWaitTime:      getEnvDurationOrDefault("POLL_MAX_WAIT_TIME", 15*time.Minute),
-		LiveLoopInterval:     getEnvDurationOrDefault("LIVE_LOOP_INTERVAL", 30*time.Second),
-		LiveMaxDuration:      getEnvDurationOrDefault("LIVE_MAX_DURATION", 16*time.Hour),
-		LiveScheduleEndpoint: getEnvOrDefault("LIVE_SCHEDULE_ENDPOINT", "/v1/live/schedule/today"),
+		LoopInterval:         getEnvDurationOrDefault("LOOP_INTERVAL", 30*time.Second),
+		LoopMaxDuration:      getEnvDurationOrDefault("LOOP_MAX_DURATION", 16*time.Hour),
+		LoopScheduleEndpoint: os.Getenv("LOOP_SCHEDULE_ENDPOINT"),
 		LogLevel:             getEnvOrDefault("LOG_LEVEL", "info"),
 		LogJSON:              getEnvBoolOrDefault("LOG_JSON", true),
 	}
@@ -102,10 +87,13 @@ func (c *Config) Validate() error {
 		return errors.New("PIPELINE_API_TOKEN environment variable is required")
 	}
 	switch c.Job {
-	case JobPipeline, JobFireAndForget, JobAlert, JobPostGame, JobLive:
+	case JobTrigger, JobPoll, JobLoop:
 		// valid
 	default:
-		return fmt.Errorf("unknown JOB %q: must be one of pipeline, fire-and-forget, alert, post-game, live", c.Job)
+		return fmt.Errorf("unknown JOB %q: must be one of trigger, poll, loop", c.Job)
+	}
+	if c.Endpoint == "" {
+		return errors.New("ENDPOINT environment variable is required")
 	}
 	return nil
 }

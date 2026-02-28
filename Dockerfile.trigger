@@ -25,9 +25,8 @@ COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 EXPOSE 8082
 
-# Long-running live stats loop. Starts once per day, sleeps until pregame
-# window, then polls /v1/internal/pipelines/live-stats every 60s until
-# all_games_complete=true or LIVE_MAX_DURATION is reached.
-ENV JOB=live
+# One-shot trigger: POST to ENDPOINT and exit immediately.
+# Configure ENDPOINT via Railway env var.
+ENV JOB=trigger
 
 CMD ["/cron-runner"]
