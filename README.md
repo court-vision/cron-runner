@@ -1,6 +1,6 @@
 # cron-runner
 
-A lightweight Go service that triggers scheduled pipeline jobs for [Court Vision](../README.md), a fantasy basketball analytics platform. It fires authenticated HTTP requests to the `data-platform` service on a schedule, covering three distinct game-day phases: pre-game, live stats ingestion, and post-game processing.
+A lightweight Go service that triggers scheduled pipeline jobs for [Court Vision](https://github.com/court-vision), a fantasy basketball analytics platform. It fires authenticated HTTP requests to the `data-platform` service on a schedule, covering three distinct game-day phases: pre-game, live stats ingestion, and post-game processing.
 
 ## How it fits into Court Vision
 
