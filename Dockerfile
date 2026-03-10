@@ -23,11 +23,7 @@ FROM scratch
 COPY --from=builder /app/cron-runner /cron-runner
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
-# Expose health check port
+# Health check port (GET /health)
 EXPOSE 8082
-
-# Poll mode: POST to ENDPOINT to start a job, then poll until completion.
-# Configure ENDPOINT via Railway env var.
-ENV JOB=poll
 
 CMD ["/cron-runner"]

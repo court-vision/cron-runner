@@ -2,30 +2,20 @@ package config
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"strconv"
 	"time"
 )
 
-// Valid job types.
-const (
-	JobTrigger = "trigger"
-	JobPoll    = "poll"
-	JobLoop    = "loop"
-)
-
 // Config holds all configuration for the cron-runner service.
+// Job-specific settings (endpoints, loop intervals, etc.) are hardcoded in
+// internal/jobs/registry.go — only global service settings live here.
 type Config struct {
 	// Backend connection
 	BackendURL   string
 	PipelineAuth string
 
-	// Job selection
-	Job      string
-	Endpoint string
-
-	// Retry settings (for initial job creation)
+	// Retry settings (used by pipeline client for all requests)
 	MaxRetries     int
 	InitialBackoff time.Duration
 	MaxBackoff     time.Duration
@@ -34,15 +24,16 @@ type Config struct {
 	// HTTP client settings
 	RequestTimeout time.Duration
 
-	// Job polling settings (only used for the poll job)
+	// Job polling settings (used by PollTask via pipeline client)
 	PollInitialInterval time.Duration
 	PollMaxInterval     time.Duration
 	PollMaxWaitTime     time.Duration
 
-	// Loop settings (only used for the loop job)
-	LoopInterval         time.Duration
-	LoopMaxDuration      time.Duration
-	LoopScheduleEndpoint string
+	// HTTP server
+	HTTPPort string
+
+	// Graceful shutdown drain window
+	DrainTimeout time.Duration
 
 	// Logging
 	LogLevel string
@@ -52,23 +43,20 @@ type Config struct {
 // Load reads configuration from environment variables with sensible defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
-		BackendURL:           getEnvOrDefault("BACKEND_URL", "https://api.courtvision.dev"),
-		PipelineAuth:         os.Getenv("PIPELINE_API_TOKEN"),
-		Job:                  getEnvOrDefault("JOB", JobPoll),
-		Endpoint:             os.Getenv("ENDPOINT"),
-		MaxRetries:           getEnvIntOrDefault("MAX_RETRIES", 3),
-		InitialBackoff:       getEnvDurationOrDefault("INITIAL_BACKOFF", 2*time.Second),
-		MaxBackoff:           getEnvDurationOrDefault("MAX_BACKOFF", 30*time.Second),
-		BackoffFactor:        getEnvFloatOrDefault("BACKOFF_FACTOR", 2.0),
-		RequestTimeout:       getEnvDurationOrDefault("REQUEST_TIMEOUT", 30*time.Second),
-		PollInitialInterval:  getEnvDurationOrDefault("POLL_INITIAL_INTERVAL", 5*time.Second),
-		PollMaxInterval:      getEnvDurationOrDefault("POLL_MAX_INTERVAL", 30*time.Second),
-		PollMaxWaitTime:      getEnvDurationOrDefault("POLL_MAX_WAIT_TIME", 15*time.Minute),
-		LoopInterval:         getEnvDurationOrDefault("LOOP_INTERVAL", 30*time.Second),
-		LoopMaxDuration:      getEnvDurationOrDefault("LOOP_MAX_DURATION", 16*time.Hour),
-		LoopScheduleEndpoint: os.Getenv("LOOP_SCHEDULE_ENDPOINT"),
-		LogLevel:             getEnvOrDefault("LOG_LEVEL", "info"),
-		LogJSON:              getEnvBoolOrDefault("LOG_JSON", true),
+		BackendURL:          getEnvOrDefault("BACKEND_URL", "https://api.courtvision.dev"),
+		PipelineAuth:        os.Getenv("PIPELINE_API_TOKEN"),
+		MaxRetries:          getEnvIntOrDefault("MAX_RETRIES", 3),
+		InitialBackoff:      getEnvDurationOrDefault("INITIAL_BACKOFF", 2*time.Second),
+		MaxBackoff:          getEnvDurationOrDefault("MAX_BACKOFF", 30*time.Second),
+		BackoffFactor:       getEnvFloatOrDefault("BACKOFF_FACTOR", 2.0),
+		RequestTimeout:      getEnvDurationOrDefault("REQUEST_TIMEOUT", 30*time.Second),
+		PollInitialInterval: getEnvDurationOrDefault("POLL_INITIAL_INTERVAL", 5*time.Second),
+		PollMaxInterval:     getEnvDurationOrDefault("POLL_MAX_INTERVAL", 30*time.Second),
+		PollMaxWaitTime:     getEnvDurationOrDefault("POLL_MAX_WAIT_TIME", 15*time.Minute),
+		HTTPPort:            getEnvOrDefault("HTTP_PORT", "8082"),
+		DrainTimeout:        getEnvDurationOrDefault("DRAIN_TIMEOUT", 30*time.Second),
+		LogLevel:            getEnvOrDefault("LOG_LEVEL", "info"),
+		LogJSON:             getEnvBoolOrDefault("LOG_JSON", true),
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -85,15 +73,6 @@ func (c *Config) Validate() error {
 	}
 	if c.PipelineAuth == "" {
 		return errors.New("PIPELINE_API_TOKEN environment variable is required")
-	}
-	switch c.Job {
-	case JobTrigger, JobPoll, JobLoop:
-		// valid
-	default:
-		return fmt.Errorf("unknown JOB %q: must be one of trigger, poll, loop", c.Job)
-	}
-	if c.Endpoint == "" {
-		return errors.New("ENDPOINT environment variable is required")
 	}
 	return nil
 }
