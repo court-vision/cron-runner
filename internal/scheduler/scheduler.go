@@ -57,13 +57,7 @@ type Scheduler struct {
 }
 
 func New(log zerolog.Logger) *Scheduler {
-	loc, err := time.LoadLocation("America/New_York")
-	if err != nil {
-		// Fallback to UTC and let the operator know — schedules will be offset.
-		log.Warn().Err(err).Msg("failed to load America/New_York timezone, falling back to UTC")
-		loc = time.UTC
-	}
-	s, _ := gocron.NewScheduler(gocron.WithLocation(loc))
+	s, _ := gocron.NewScheduler(gocron.WithLocation(time.UTC))
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
 		s:       s,

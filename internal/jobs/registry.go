@@ -16,7 +16,7 @@ func RegisterAll(client *pipeline.Client, log zerolog.Logger) []scheduler.JobDef
 	return []scheduler.JobDef{
 		{
 			Name:      "pre-game",
-			Schedule:  "0/15 9-20 * * *",
+			Schedule:  "0/15 14-23,0-1 * * *",
 			Singleton: true,
 			Timeout:   20 * time.Minute,
 			Task: &task.TriggerTask{
@@ -27,7 +27,7 @@ func RegisterAll(client *pipeline.Client, log zerolog.Logger) []scheduler.JobDef
 		},
 		{
 			Name:        "live-stats",
-			Schedule:    "*/30 * 11-23,0-3 * * *",
+			Schedule:    "*/30 * 16-23,0-8 * * *",
 			WithSeconds: true,
 			Singleton:   true,
 			Task: &task.TriggerTask{
@@ -38,7 +38,7 @@ func RegisterAll(client *pipeline.Client, log zerolog.Logger) []scheduler.JobDef
 		},
 		{
 			Name:      "post-game",
-			Schedule:  "0/15 22-23,0-4 * * *",
+			Schedule:  "0/15 3-9 * * *",
 			Singleton: true,
 			Timeout:   20 * time.Minute,
 			Task: &task.TriggerTask{
