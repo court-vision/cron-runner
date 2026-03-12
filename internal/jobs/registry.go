@@ -27,7 +27,7 @@ func RegisterAll(client *pipeline.Client, log zerolog.Logger) []scheduler.JobDef
 		},
 		{
 			Name:        "live-stats",
-			Schedule:    "*/30 * 16-23,0-8 * * *",
+			Schedule:    "*/30 * 16-23,0-6 * * *",
 			WithSeconds: true,
 			Singleton:   true,
 			Task: &task.TriggerTask{
