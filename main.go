@@ -10,6 +10,7 @@ import (
 	"cron-runner/internal/jobs"
 	"cron-runner/internal/logger"
 	"cron-runner/internal/pipeline"
+	"cron-runner/internal/reporter"
 	"cron-runner/internal/scheduler"
 	"cron-runner/internal/server"
 )
@@ -29,9 +30,10 @@ func main() {
 		Msg("cron-runner starting")
 
 	client := pipeline.NewClient(cfg, log)
+	rep := reporter.New(cfg.BackendURL, cfg.PipelineAuth, log)
 
 	sched := scheduler.New(log)
-	for _, def := range jobs.RegisterAll(client, log) {
+	for _, def := range jobs.RegisterAll(client, rep, log) {
 		if err := sched.Register(def); err != nil {
 			log.Fatal().Err(err).Str("job", def.Name).Msg("failed to register job")
 		}

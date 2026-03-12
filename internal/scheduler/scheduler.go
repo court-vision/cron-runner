@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -11,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
+
+const recentRunsMax = 20
 
 // JobDef is the declarative description of a scheduled job.
 // Adding a new job means adding one JobDef to the registry — nothing else changes.
@@ -23,16 +26,47 @@ type JobDef struct {
 	Timeout     time.Duration // 0 = no timeout; cancels the job's context when exceeded
 }
 
+// RecentRun captures basic outcome data for a single job execution.
+// Stored in a bounded in-memory ring buffer per job (last recentRunsMax runs).
+type RecentRun struct {
+	TriggeredAt time.Time
+	Duration    time.Duration
+	Result      string // "success" | "failure"
+}
+
+func (r RecentRun) MarshalJSON() ([]byte, error) {
+	type wire struct {
+		TriggeredAt time.Time `json:"triggered_at"`
+		DurationMs  int64     `json:"duration_ms"`
+		Result      string    `json:"result"`
+	}
+	return json.Marshal(wire{
+		TriggeredAt: r.TriggeredAt,
+		DurationMs:  r.Duration.Milliseconds(),
+		Result:      r.Result,
+	})
+}
+
+// appendRun appends a run to the ring buffer, evicting the oldest if over capacity.
+func appendRun(runs []RecentRun, r RecentRun) []RecentRun {
+	runs = append(runs, r)
+	if len(runs) > recentRunsMax {
+		runs = runs[len(runs)-recentRunsMax:]
+	}
+	return runs
+}
+
 // JobStatus is the runtime state of a registered job, reported by GET /status.
 type JobStatus struct {
-	Name         string     `json:"name"`
-	Schedule     string     `json:"schedule"`
-	LastRun      *time.Time `json:"last_run,omitempty"`
-	NextRun      *time.Time `json:"next_run,omitempty"`
-	LastResult   string     `json:"last_result"` // "never", "running", "success", "failure"
-	LastError    string     `json:"last_error,omitempty"`
-	LastDuration string     `json:"last_duration,omitempty"`
-	RunCount     uint64     `json:"run_count"`
+	Name         string      `json:"name"`
+	Schedule     string      `json:"schedule"`
+	LastRun      *time.Time  `json:"last_run,omitempty"`
+	NextRun      *time.Time  `json:"next_run,omitempty"`
+	LastResult   string      `json:"last_result"` // "never", "running", "success", "failure"
+	LastError    string      `json:"last_error,omitempty"`
+	LastDuration string      `json:"last_duration,omitempty"`
+	RunCount     uint64      `json:"run_count"`
+	RecentRuns   []RecentRun `json:"recent_runs,omitempty"`
 }
 
 type jobState struct {
@@ -42,6 +76,7 @@ type jobState struct {
 	lastError    string
 	lastDuration time.Duration
 	runCount     uint64
+	recentRuns   []RecentRun // bounded ring, newest appended at end
 }
 
 // Scheduler wraps gocron/v2 with status tracking and structured logging.
@@ -97,12 +132,18 @@ func (s *Scheduler) Register(def JobDef) error {
 				s.mu.Lock()
 				startTime := s.running[jobName]
 				delete(s.running, jobName)
+				dur := now.Sub(startTime)
 				if st, ok := s.states[jobName]; ok {
 					st.lastResult = "success"
 					st.lastRun = &now
 					st.lastError = ""
-					st.lastDuration = now.Sub(startTime)
+					st.lastDuration = dur
 					st.runCount++
+					st.recentRuns = appendRun(st.recentRuns, RecentRun{
+						TriggeredAt: startTime,
+						Duration:    dur,
+						Result:      "success",
+					})
 				}
 				s.mu.Unlock()
 				s.log.Info().Str("job", jobName).Msg("job_completed")
@@ -112,12 +153,18 @@ func (s *Scheduler) Register(def JobDef) error {
 				s.mu.Lock()
 				startTime := s.running[jobName]
 				delete(s.running, jobName)
+				dur := now.Sub(startTime)
 				if st, ok := s.states[jobName]; ok {
 					st.lastResult = "failure"
 					st.lastRun = &now
 					st.lastError = err.Error()
-					st.lastDuration = now.Sub(startTime)
+					st.lastDuration = dur
 					st.runCount++
+					st.recentRuns = appendRun(st.recentRuns, RecentRun{
+						TriggeredAt: startTime,
+						Duration:    dur,
+						Result:      "failure",
+					})
 				}
 				s.mu.Unlock()
 				s.log.Error().Str("job", jobName).Err(err).Msg("job_failed")
@@ -209,6 +256,7 @@ func (s *Scheduler) Statuses() []JobStatus {
 			LastResult: st.lastResult,
 			LastError:  st.lastError,
 			RunCount:   st.runCount,
+			RecentRuns: st.recentRuns,
 		}
 		if st.lastDuration > 0 {
 			js.LastDuration = st.lastDuration.Round(time.Millisecond).String()
