@@ -51,5 +51,17 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 				Reporter: rep,
 			},
 		},
+		{
+			Name:      "deploy",
+			Schedule:  "0 8 * * *", // 2:00 AM CST (UTC-6) = 08:00 UTC
+			Singleton: true,
+			Timeout:   5 * time.Minute,
+			Task: &task.TriggerTask{
+				Client:   client,
+				Endpoint: "/v1/internal/pipelines/deploy",
+				Log:      log.With().Str("job", "deploy").Logger(),
+				Reporter: rep,
+			},
+		},
 	}
 }
