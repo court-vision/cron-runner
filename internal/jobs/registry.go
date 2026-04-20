@@ -15,18 +15,18 @@ import (
 // To add a new job, append a JobDef here — no other changes needed.
 func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Logger) []scheduler.JobDef {
 	return []scheduler.JobDef{
-		{
-			Name:      "pre-game",
-			Schedule:  "0/15 14-23,0-1 * * *",
-			Singleton: true,
-			Timeout:   20 * time.Minute,
-			Task: &task.TriggerTask{
-				Client:   client,
-				Endpoint: "/v1/internal/pipelines/pre-game",
-				Log:      log.With().Str("job", "pre-game").Logger(),
-				Reporter: rep,
-			},
-		},
+		// {
+		// 	Name:      "pre-game",
+		// 	Schedule:  "0/15 14-23,0-1 * * *",
+		// 	Singleton: true,
+		// 	Timeout:   20 * time.Minute,
+		// 	Task: &task.TriggerTask{
+		// 		Client:   client,
+		// 		Endpoint: "/v1/internal/pipelines/pre-game",
+		// 		Log:      log.With().Str("job", "pre-game").Logger(),
+		// 		Reporter: rep,
+		// 	},
+		// },
 		{
 			Name:        "live-stats",
 			Schedule:    "*/30 * 16-23,0-6 * * *",
@@ -39,18 +39,18 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 				Reporter: rep,
 			},
 		},
-		{
-			Name:      "post-game",
-			Schedule:  "0/15 3-9 * * *",
-			Singleton: true,
-			Timeout:   20 * time.Minute,
-			Task: &task.TriggerTask{
-				Client:   client,
-				Endpoint: "/v1/internal/pipelines/post-game",
-				Log:      log.With().Str("job", "post-game").Logger(),
-				Reporter: rep,
-			},
-		},
+		// {
+		// 	Name:      "post-game",
+		// 	Schedule:  "0/15 3-9 * * *",
+		// 	Singleton: true,
+		// 	Timeout:   20 * time.Minute,
+		// 	Task: &task.TriggerTask{
+		// 		Client:   client,
+		// 		Endpoint: "/v1/internal/pipelines/post-game",
+		// 		Log:      log.With().Str("job", "post-game").Logger(),
+		// 		Reporter: rep,
+		// 	},
+		// },
 		{
 			Name:      "deploy",
 			Schedule:  "0 8 * * *", // 2:00 AM CST (UTC-6) = 08:00 UTC
