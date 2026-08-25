@@ -1,214 +1,213 @@
 # cron-runner
 
-A lightweight Go service that triggers scheduled pipeline jobs for [Court Vision](https://github.com/court-vision), a fantasy basketball analytics platform. It fires authenticated HTTP requests to the `data-platform` service on a schedule, covering three distinct game-day phases: pre-game, live stats ingestion, and post-game processing.
+A small, always-on Go service that triggers [Court Vision](https://github.com/court-vision)'s scheduled data pipelines. It runs an in-process cron scheduler, and on each tick fires one authenticated `POST` at a `data-platform` pipeline endpoint, then reports the outcome back to the data-platform so the ops dashboard can show it.
 
 ## How it fits into Court Vision
 
 ```
-Railway cron schedule
-       │
-       ▼
-  cron-runner  ──POST──►  data-platform  ──writes──►  PostgreSQL
-                           (pipelines)                    │
-                                                          ▼
-                                                       backend  ──►  frontend
+ cron-runner (one Railway service, one Go process)
+ ┌───────────────────────────────────────────────┐
+ │ gocron scheduler (UTC)                        │
+ │   pre-game ─┐                                 │
+ │   live-stats│  POST /v1/internal/pipelines/*  │──►  data-platform  ──writes──►  PostgreSQL (nba.*)
+ │   post-game ├─────────────────────────────────┤                                     │
+ │   ...       │  POST /v1/internal/cron/job-runs│──►  (run history for the dashboard)  ▼
+ │ HTTP :8082  ┘  GET /health, GET /status       │                                  backend ──► frontend
+ └───────────────────────────────────────────────┘
 ```
 
-The cron-runner is intentionally dumb: it fires HTTP requests and exits (or loops). All scheduling intelligence—whether there are games today, when tip-off is, whether ESPN has updated yet—lives in the data-platform endpoints, not here. This is the **self-gating pattern** described below.
+The cron-runner is intentionally dumb: it knows *when to ask*, never *whether to run*. Whether there are games today, when tip-off is, whether every game is final, whether ESPN has updated yet — all of that lives in the data-platform endpoints, which return immediately when there is nothing to do (the **self-gating pattern** below). That is why every job below fires far more often, and over a wider window, than it strictly needs to.
 
 ## Tech stack
 
-- **Go 1.22**
+- **Go 1.22**, standard library `net/http`
+- [`gocron/v2`](https://github.com/go-co-op/gocron) — in-process cron scheduler (robfig/cron syntax)
 - [`zerolog`](https://github.com/rs/zerolog) — structured JSON logging
-- Standard library `net/http` — no framework
-- Built as a static binary (`CGO_ENABLED=0`), deployed via `FROM scratch` Docker images
+- Built as a static binary (`CGO_ENABLED=0`) into a `FROM scratch` image
 
 ## Directory structure
 
 ```
 cron-runner/
-├── main.go                    # Entry point; dispatches to trigger/poll/loop modes
+├── main.go                    # Loads config, builds client + reporter, registers jobs, starts scheduler + HTTP server
 ├── internal/
-│   ├── config/
-│   │   └── config.go          # Env var loading and validation
-│   ├── pipeline/
-│   │   └── client.go          # HTTP client: TriggerEndpoint, FetchEndpoint, TriggerAll
-│   ├── retry/
-│   │   └── retry.go           # Exponential backoff with Retry-After header support
-│   └── logger/
-│       └── logger.go          # zerolog setup (JSON or console)
-├── Dockerfile                 # Default image (JOB=poll)
-├── Dockerfile.trigger         # One-shot image (JOB=trigger)
-├── Dockerfile.loop            # Long-running image (JOB=loop)
+│   ├── config/config.go       # Env var loading and validation (global settings only)
+│   ├── jobs/registry.go       # THE job table — one JobDef per scheduled job
+│   ├── scheduler/scheduler.go # gocron wrapper: UTC, singleton mode, per-job timeout, run history
+│   ├── task/                  # Task interface + TriggerTask (fire-and-forget POST) and PollTask (start job, poll to completion)
+│   ├── pipeline/client.go     # HTTP client: TriggerEndpoint, FetchEndpoint, TriggerAll (+ retries)
+│   ├── retry/retry.go         # Exponential backoff with Retry-After support
+│   ├── reporter/reporter.go   # Async POST of each run's outcome to /v1/internal/cron/job-runs
+│   ├── server/server.go       # GET /health and GET /status
+│   └── logger/logger.go       # zerolog setup (JSON or console)
+├── Dockerfile
+├── .env.example               # Local defaults; copy to .env
 ├── go.mod
 └── go.sum
 ```
 
-## Setup and building
+## Jobs
 
-**Prerequisites:** Go 1.22+
+All schedules are evaluated in **UTC** (`gocron.WithLocation(time.UTC)`). NBA game times are US/Eastern, which is UTC-4 (EDT) from mid-March to early November and UTC-5 (EST) otherwise, so every window is padded by an hour to hold across the DST switch. `live-stats` uses a six-field expression whose first field is seconds (`WithSeconds: true`); the others are standard five-field cron.
 
-```bash
-# Run locally (reads env vars from shell)
-source .env
-go run .
+| Job | UTC schedule | Eastern equivalent | Endpoint (`POST`) | Data-platform gate |
+|---|---|---|---|---|
+| `pre-game` | `0/15 13-23,0-1 * * *` | every 15 min, 9:00 AM–9:45 PM EDT (8:00 AM–8:45 PM EST) | `/v1/internal/pipelines/pre-game` | No-op unless games today and now ≥ first tip − 150 min; per-pipeline dedup (once per NBA date) and concurrency check. Returns at once; pipelines run in the background. |
+| `live-stats` | `*/30 * 16-23,0-7 * * *` (6-field) | every 30 s, noon–3:59 AM EDT (11:00 AM–2:59 AM EST) | `/v1/internal/pipelines/live-stats` | No-op unless games today and within 15 min of the first tip; runs in milliseconds otherwise. Falls back to the live scoreboard for playoff dates missing from `nba.games`. |
+| `post-game` | `0/15 2-13 * * *` | every 15 min, 10:00 PM–9:45 AM EDT (9:00 PM–8:45 AM EST) | `/v1/internal/pipelines/post-game` | Only inside a window that opens 150 min after the latest tip and lasts 210 min, and only once every game is Final. Per-pipeline dedup; ESPN-gated pipelines wait for ESPN's scoring period to advance (2:30 AM CST fallback). |
+| `schedule-sync` | `0 12 * * 1` | Mondays 8:00 AM EDT (7:00 AM EST) | `/v1/internal/pipelines/game-start-times?source=cdn` | None on the cron side — an idempotent upsert of future `nba.games` rows (tip-off times, moved/postponed games) from the NBA CDN feed. |
+| `playoffs` | `0 6 * * *` | daily 2:00 AM EDT (1:00 AM EST) | `/v1/internal/pipelines/playoffs` | None on the cron side — upserts `nba.playoff_series` from NBA SeriesStandings. |
+| `deploy` | `0 8 * * *` | daily 4:00 AM EDT (3:00 AM EST / 2:00 AM CST) | `/v1/internal/pipelines/deploy` | Fires a GitHub `repository_dispatch` (`nightly-deploy`) at the backend and data-platform repos; 503 if the GitHub deploy config is missing. The backend also auto-deploys on push, so in practice this is the data-platform's nightly release. |
 
-# Build binary
-go build -o cron-runner .
+Job-level settings that apply to all of the above:
 
-# Build Docker image
-docker build -f Dockerfile.trigger -t cron-runner:trigger .
-docker build -f Dockerfile.loop    -t cron-runner:loop .
-docker build -f Dockerfile         -t cron-runner:poll .
-```
+- **Singleton** — every job runs in `LimitModeReschedule`: if the previous run is still in flight, the new tick is skipped.
+- **Timeout** — every trigger job except `live-stats` cancels its request context after 5 minutes. The endpoints return immediately and do their work in the background, so this only bites if the data-platform is hung.
+- **Reporting** — after every run, `TriggerTask` POSTs a `RunReport` (`job_name`, timings, HTTP status, attempts, error, response snippet) to `/v1/internal/cron/job-runs`. The `job_name` is the registry name, which is what the data-platform dashboard keys on.
 
-The `.env` file at the repo root contains local defaults. Source it before running locally.
-
-## Environment variables
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `BACKEND_URL` | yes | `https://api.courtvision.dev` | Base URL of the data-platform service (not the backend API) |
-| `PIPELINE_API_TOKEN` | yes | — | Bearer token sent on every request (`Authorization: Bearer <token>`) |
-| `JOB` | yes | `poll` | Job mode: `trigger`, `poll`, or `loop` |
-| `ENDPOINT` | yes | — | Path to POST to, e.g. `/v1/internal/pipelines/live-stats` |
-| `MAX_RETRIES` | no | `3` | Number of retries on network errors and 5xx responses |
-| `INITIAL_BACKOFF` | no | `2s` | Starting backoff duration (Go duration string, e.g. `2s`) |
-| `MAX_BACKOFF` | no | `30s` | Ceiling for exponential backoff |
-| `BACKOFF_FACTOR` | no | `2.0` | Multiplier applied to backoff on each attempt |
-| `REQUEST_TIMEOUT` | no | `30s` | Per-request HTTP timeout |
-| `LOOP_INTERVAL` | no | `30s` | Delay between iterations in loop mode |
-| `LOOP_MAX_DURATION` | no | `16h` | Safety timeout for loop mode; container exits after this |
-| `LOOP_SCHEDULE_ENDPOINT` | no | — | If set, loop mode GETs this path first to check schedule and determine wake time |
-| `POLL_INITIAL_INTERVAL` | no | `5s` | Starting polling interval for poll mode |
-| `POLL_MAX_INTERVAL` | no | `30s` | Max polling interval for poll mode (grows with 1.5x backoff) |
-| `POLL_MAX_WAIT_TIME` | no | `15m` | Timeout for poll mode to wait for job completion |
-| `LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, or `error` |
-| `LOG_JSON` | no | `true` | `true` for JSON (production), `false` for human-readable console output |
-
-> **Note:** In Railway, `BACKEND_URL` should point to the **data-platform** service URL, not the backend API. The two are separate deployments.
-
-## Job modes
-
-The `JOB` env var selects one of three execution modes. Each mode uses the same `ENDPOINT` variable as its target path.
-
-### `trigger` — one-shot fire and forget
-
-POSTs to `ENDPOINT` once. On success (`2xx`), exits `0`. On failure after all retries, exits `1`.
-
-Use for jobs where you just need to kick off work and don't need to wait for confirmation—pre-game pipeline triggers, post-game pipeline triggers.
-
-```
-POST $BACKEND_URL$ENDPOINT
-  └─► retry on 5xx / network error
-  └─► exit 0 (success) or exit 1 (failure)
-```
-
-### `loop` — long-running poller
-
-Fires `POST $ENDPOINT` on a fixed interval until the response body contains `data.done == true`, or the `LOOP_MAX_DURATION` safety timeout is reached. Transient errors are logged and skipped—the loop continues.
-
-If `LOOP_SCHEDULE_ENDPOINT` is configured, the runner first `GET`s that path to learn:
-- `data.has_games` — if `false`, exits immediately (no work today)
-- `data.wake_at_et` — if set (RFC3339), sleeps until that time before starting the polling loop
-
-This lets the Railway cron fire the container at a fixed early time (e.g., 6 PM ET) while the container handles its own delayed start based on the actual tip-off schedule.
-
-```
-GET $LOOP_SCHEDULE_ENDPOINT
-  ├─► has_games == false → exit 0
-  └─► sleep until wake_at_et
-      └─► loop every $LOOP_INTERVAL:
-            POST $ENDPOINT
-              ├─► data.done == true → exit 0
-              ├─► transient error   → log warn, continue
-              └─► timeout ($LOOP_MAX_DURATION) → exit 0
-```
-
-### `poll` — start job, poll for completion
-
-POSTs to `ENDPOINT` to create a background job, extracts a `job_id` from the response, then polls `GET /v1/internal/pipelines/jobs/{job_id}` until the job reaches `completed` or `failed` status. Used when you need to confirm all pipelines in a batch succeeded before declaring success.
-
-```
-POST $ENDPOINT → job_id
-  └─► poll GET /pipelines/jobs/{job_id} (with 1.5x backoff, up to $POLL_MAX_WAIT_TIME)
-        ├─► status == "completed" && failures == 0 → exit 0
-        └─► status == "failed" or timeout          → exit 1
-```
-
-## Retry behavior
-
-All HTTP calls go through `internal/retry`. The retry logic:
-
-- Retries on network errors and `5xx` responses (`500`, `502`, `503`, `504`, `429`)
-- Uses exponential backoff: `initial_backoff * factor^attempt`, capped at `max_backoff`
-- Respects `Retry-After` headers on `429` responses
-- Does **not** retry `4xx` errors (bad request, auth failure, etc.)
-
-In `loop` mode, a failed trigger iteration logs a warning and continues the loop rather than propagating the error. The loop only stops on `data.done == true` or timeout.
+All of this lives in one file: [`internal/jobs/registry.go`](internal/jobs/registry.go). The table above is asserted by `internal/jobs/registry_test.go`, so a schedule edit has to be made in both places.
 
 ## Self-gating pattern
 
-Endpoints on the data-platform are self-gating: they inspect game schedules, scoring periods, and time windows internally and return early if there is nothing to do. The cron-runner fires on a schedule but defers all "should I actually run?" logic to the downstream service.
+Endpoints on the data-platform inspect game schedules, pipeline-run history and time windows internally and return `200` early when there is nothing to do. The cron-runner fires on a fixed schedule and defers every "should I actually run?" decision downstream. This means:
 
-This means:
-- No hardcoded game times in the cron-runner
-- No race conditions from cron firing too early or too late
-- The data-platform endpoint is the authoritative source of "is it time yet?"
+- No game times hardcoded here, and no code change when the NBA moves a tip-off
+- Firing every 15 s/15 min is safe: a skipped tick costs one cheap request
+- The whole registry can stay enabled through the off-season — every job returns "no games"
 
-## Railway deployments
+## Running locally
 
-Three Railway services run from this repository, each using a different Dockerfile and cron schedule.
+**Prerequisites:** Go 1.22+ and a `PIPELINE_API_TOKEN` for the data-platform you are pointing at (use a dev deployment, never production, unless you mean to trigger real pipelines).
 
-### pre-game (`Dockerfile.trigger`)
+```bash
+cp .env.example .env      # then fill in PIPELINE_API_TOKEN
+source .env
+go run .                  # scheduler starts immediately; GET http://localhost:8082/status
 
-| Setting | Value |
-|---|---|
-| `JOB` | `trigger` |
-| `ENDPOINT` | `/v1/internal/pipelines/pre-game` (or equivalent) |
-| Railway cron | `0/15 14-23,0-2 * * *` (every 15 min, 2 PM–2 AM ET) |
+go build ./... && go vet ./... && go test ./...
+docker build -t cron-runner .
+```
 
-Fires the pre-game pipeline on a 15-minute cadence throughout the afternoon and evening. The data-platform endpoint is self-gating: it skips work outside the relevant window and deduplicates runs so that firing every 15 minutes is safe.
+Jobs fire on their real UTC schedule, so a local run mostly idles. To exercise an endpoint by hand, `curl -X POST -H "Authorization: Bearer $PIPELINE_API_TOKEN" "$BACKEND_URL/v1/internal/pipelines/pre-game?force=true"` — the gates accept `?force=true` / `?date=YYYY-MM-DD` for manual runs and backfills.
 
-### live (`Dockerfile.loop`)
+## Environment variables
 
-| Setting | Value |
-|---|---|
-| `JOB` | `loop` |
-| `ENDPOINT` | `/v1/internal/pipelines/live-stats` |
-| `LOOP_SCHEDULE_ENDPOINT` | `/v1/live/today` (returns `has_games`, `wake_at_et`) |
-| `LOOP_INTERVAL` | `60s` |
-| `LOOP_MAX_DURATION` | `6h` |
-| Railway cron | `0 18 * * *` (once at 6 PM ET each day) |
+All defined in [`internal/config/config.go`](internal/config/config.go). Durations are Go `time.ParseDuration` strings (`30s`, `15m`, `2h`) — a bare number is silently ignored and the default is used.
 
-Starts once per evening. GETs the schedule endpoint to check if there are games and when to wake up, sleeps until 30 minutes before the first tip-off, then POSTs to the live-stats endpoint every 60 seconds. When all games are final, the endpoint returns `data.done = true` and the container exits. The 6-hour `LOOP_MAX_DURATION` prevents zombie containers if something goes wrong.
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `BACKEND_URL` | yes | `https://data.courtvision.dev` | Origin of the **data-platform** (not the backend API). Every job POSTs to `$BACKEND_URL/v1/internal/pipelines/*` and reports to `$BACKEND_URL/v1/internal/cron/job-runs`. |
+| `PIPELINE_API_TOKEN` | yes | — | Bearer token sent on every request (`Authorization: Bearer <token>`). |
+| `MAX_RETRIES` | no | `3` | Retries per trigger on network errors, `429`, and `5xx`. |
+| `INITIAL_BACKOFF` | no | `2s` | First retry delay. |
+| `MAX_BACKOFF` | no | `30s` | Ceiling for exponential backoff. |
+| `BACKOFF_FACTOR` | no | `2.0` | Multiplier applied per attempt. |
+| `REQUEST_TIMEOUT` | no | `30s` | Per-request HTTP timeout (independent of the job `Timeout`, which bounds the whole run including retries). |
+| `POLL_INITIAL_INTERVAL` | no | `5s` | `PollTask` only: first status-poll interval. No registered job uses `PollTask` today. |
+| `POLL_MAX_INTERVAL` | no | `30s` | `PollTask` only: poll interval ceiling (grows 1.5x per poll). |
+| `POLL_MAX_WAIT_TIME` | no | `15m` | `PollTask` only: give up waiting for job completion. |
+| `HTTP_PORT` | no | `8082` | Port for `/health` and `/status`. |
+| `DRAIN_TIMEOUT` | no | `30s` | On `SIGTERM`/`SIGINT`, how long to wait for in-flight jobs before exiting. |
+| `LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, or `error`. |
+| `LOG_JSON` | no | `true` | `true` for JSON lines (production), `false` for a human-readable console writer. |
 
-### post-game (`Dockerfile.trigger`)
+Job-specific settings (endpoints, schedules, timeouts) are deliberately **not** environment variables — they live in the registry so a change is a reviewed commit, not a Railway variable edit.
 
-| Setting | Value |
-|---|---|
-| `JOB` | `trigger` |
-| `ENDPOINT` | `/v1/internal/pipelines/post-game` (or equivalent) |
-| Railway cron | `0/15 14-23,0-2 * * *` (same cadence as pre-game) |
+## HTTP endpoints
 
-Fires the post-game pipeline on the same 15-minute cadence. The data-platform endpoint gates on all games being final and on ESPN's `latestScoringPeriod` advancing (with a 2:30 AM ET fallback), so firing frequently is safe—work only happens once per game night when conditions are met.
+The process listens on `HTTP_PORT` (default `8082`). Both routes are unauthenticated and read-only.
 
-## Logging
+### `GET /health`
 
-All output is structured JSON by default (`LOG_JSON=true`), intended for log aggregation pipelines. Each log line includes:
+Railway health check. Returns `200 {"status":"ok"}` once the process is up.
+
+### `GET /status`
+
+Scheduler uptime plus the runtime state of every registered job — `next_run` from gocron, and the last result, error, duration, total run count and the last 20 runs from the scheduler's in-memory ring buffer. State resets on restart; durable history is in the data-platform's `cron_job_runs` table.
 
 ```json
 {
-  "level": "info",
-  "service": "cron-runner",
-  "component": "pipeline-client",
-  "time": "2026-03-09T22:00:01Z",
-  "endpoint": "/v1/internal/pipelines/live-stats",
-  "status_code": 200,
-  "attempts": 1,
-  "duration": "245ms",
-  "message": "endpoint triggered successfully"
+  "scheduler": "running",
+  "uptime": "3h12m5s",
+  "jobs": [
+    {
+      "name": "live-stats",
+      "schedule": "*/30 * 16-23,0-7 * * *",
+      "last_run": "2026-11-01T02:15:30.412Z",
+      "next_run": "2026-11-01T02:16:00Z",
+      "last_result": "success",
+      "last_duration": "212ms",
+      "run_count": 1234,
+      "recent_runs": [
+        { "triggered_at": "2026-11-01T02:15:30.2Z", "duration_ms": 212, "result": "success" }
+      ]
+    },
+    {
+      "name": "post-game",
+      "schedule": "0/15 2-13 * * *",
+      "last_result": "never",
+      "next_run": "2026-11-01T02:30:00Z",
+      "run_count": 0
+    }
+  ]
 }
 ```
 
-Set `LOG_JSON=false` for human-readable console output during local development.
+`last_result` is one of `never`, `running`, `success`, `failure`; `last_error` is present only after a failure.
+
+## Retry behavior
+
+Every trigger goes through `internal/retry`:
+
+- Retries on network errors and on `429`, `500`, `502`, `503`, `504` (any `5xx`)
+- Exponential backoff `INITIAL_BACKOFF * BACKOFF_FACTOR^attempt`, capped at `MAX_BACKOFF`
+- Honors `Retry-After` on `429`
+- Does **not** retry other `4xx` (bad request, bad token, unknown route)
+- Stops early if the job's context is cancelled (timeout or shutdown)
+
+A run that exhausts its retries is reported as `failure` with the last HTTP status and error, and the next scheduled tick tries again from scratch.
+
+## Adding a job
+
+1. Append a `scheduler.JobDef` to `RegisterAll` in [`internal/jobs/registry.go`](internal/jobs/registry.go):
+
+   ```go
+   {
+       Name:      "my-job",
+       Schedule:  "30 11 * * *",   // UTC; add WithSeconds: true for a 6-field expression
+       Singleton: true,
+       Timeout:   5 * time.Minute,
+       Task:      trigger("my-job", "/v1/internal/pipelines/my-endpoint?some=param"),
+   },
+   ```
+
+   `trigger(name, endpoint)` builds a `TriggerTask` that POSTs `$BACKEND_URL` + endpoint (query strings are preserved) and reports the run under `name`. For anything other than a fire-and-forget POST, implement `task.Task` (`Name()` + `Run(ctx) error`) and pass that instead.
+
+2. Add a row to the `expected` table in `internal/jobs/registry_test.go`, and ideally a window-edge case in `TestScheduleNextFire`. `go test ./...` then proves the expression parses under gocron with the right seconds flag.
+
+3. Add a row to the **Jobs** table above, and make sure the data-platform endpoint self-gates — the scheduler will call it whether or not there is work.
+
+4. If the data-platform dashboard should attribute a pipeline to the new job, add the mapping to `PIPELINE_CRON_JOB_MAP` in the data-platform's `api/v1/dashboard.py`.
+
+Nothing else changes: `main.go` registers whatever the registry returns, and `/status` picks the job up automatically.
+
+## Railway deployment
+
+One service, built from `Dockerfile`, always on (this is **not** a Railway cron-schedule service — the process schedules itself).
+
+- Variables: `BACKEND_URL` (the data-platform's public origin), `PIPELINE_API_TOKEN` (must match the data-platform's), optionally `LOG_LEVEL`.
+- Health check: `GET /health` on port `8082`.
+- Restart policy: always. On `SIGTERM` the scheduler stops accepting ticks, in-flight runs get `DRAIN_TIMEOUT` to finish, then the HTTP server closes.
+- A redeploy mid-window is safe: any tick lost during the restart is covered by the next one, and the endpoints dedup on their side.
+
+## Logging
+
+Structured JSON by default (`LOG_JSON=true`). Every line carries `service=cron-runner`, a `component` (`scheduler`, `pipeline-client`, `reporter`, `http-server`) and, for job output, `job=<name>`.
+
+```json
+{"level":"info","service":"cron-runner","component":"scheduler","job":"post-game","time":"2026-11-01T02:15:00Z","message":"job_started"}
+{"level":"info","service":"cron-runner","component":"pipeline-client","endpoint":"/v1/internal/pipelines/post-game","status_code":200,"attempts":1,"duration":"245ms","time":"2026-11-01T02:15:00Z","message":"endpoint triggered successfully"}
+{"level":"info","service":"cron-runner","job":"post-game","attempts":1,"status_code":200,"duration":"245ms","time":"2026-11-01T02:15:00Z","message":"trigger_succeeded"}
+```
+
+Set `LOG_JSON=false` for a human-readable console writer during local development.

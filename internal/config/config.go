@@ -43,7 +43,7 @@ type Config struct {
 // Load reads configuration from environment variables with sensible defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
-		BackendURL:          getEnvOrDefault("BACKEND_URL", "https://api.courtvision.dev"),
+		BackendURL:          getEnvOrDefault("BACKEND_URL", "https://data.courtvision.dev"),
 		PipelineAuth:        os.Getenv("PIPELINE_API_TOKEN"),
 		MaxRetries:          getEnvIntOrDefault("MAX_RETRIES", 3),
 		InitialBackoff:      getEnvDurationOrDefault("INITIAL_BACKOFF", 2*time.Second),
