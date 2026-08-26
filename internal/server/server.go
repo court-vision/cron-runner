@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"time"
 
 	"cron-runner/internal/scheduler"
@@ -16,13 +17,15 @@ import (
 type Server struct {
 	httpServer *http.Server
 	sched      *scheduler.Scheduler
+	version    string
 	log        zerolog.Logger
 }
 
 func New(port string, sched *scheduler.Scheduler, log zerolog.Logger) *Server {
 	s := &Server{
-		sched: sched,
-		log:   log.With().Str("component", "http-server").Logger(),
+		sched:   sched,
+		version: buildVersion(),
+		log:     log.With().Str("component", "http-server").Logger(),
 	}
 
 	mux := http.NewServeMux()
@@ -40,9 +43,22 @@ func New(port string, sched *scheduler.Scheduler, log zerolog.Logger) *Server {
 	return s
 }
 
+// buildVersion is the short git SHA Railway stamps on the container
+// (RAILWAY_GIT_COMMIT_SHA), or "dev" when running outside Railway.
+func buildVersion() string {
+	sha := os.Getenv("RAILWAY_GIT_COMMIT_SHA")
+	if sha == "" {
+		return "dev"
+	}
+	if len(sha) > 7 {
+		sha = sha[:7]
+	}
+	return sha
+}
+
 // Start runs the HTTP server. Blocking — call in a goroutine.
 func (s *Server) Start() {
-	s.log.Info().Str("addr", s.httpServer.Addr).Msg("http_server_starting")
+	s.log.Info().Str("addr", s.httpServer.Addr).Str("version", s.version).Msg("http_server_starting")
 	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		s.log.Error().Err(err).Msg("http_server_error")
 	}
@@ -53,12 +69,29 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-// GET /health — Railway health check.
-// Returns 200 {"status":"ok"} when the service is running.
+// healthResponse is the GET /health body. Field order is the documented
+// contract: uptime monitors match on the literal `"status":"ok"`.
+type healthResponse struct {
+	Status  string `json:"status"`
+	Uptime  string `json:"uptime"`
+	Jobs    int    `json:"jobs"`
+	Version string `json:"version"`
+}
+
+// GET /health — Railway health check and uptime-monitor target.
+// Always 200 while the process runs: the scheduler has no external dependency
+// to gate on (the data-platform's own /health covers the database).
+//
+//	{"status":"ok","uptime":"3h12m5s","jobs":6,"version":"270eb2e"}
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(healthResponse{
+		Status:  "ok",
+		Uptime:  s.sched.Uptime(),
+		Jobs:    s.sched.JobCount(),
+		Version: s.version,
+	})
 }
 
 // GET /status — Current state of all registered jobs.

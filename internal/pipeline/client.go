@@ -111,6 +111,10 @@ type jobStatusResponse struct {
 
 const endpointErrorBodyMaxLen = 512
 
+// CorrelationHeader is the request header the data-platform's correlation
+// middleware reads and echoes into its logs and response.
+const CorrelationHeader = "X-Correlation-ID"
+
 func truncateForLog(body string, maxLen int) string {
 	if len(body) <= maxLen {
 		return body
@@ -120,11 +124,20 @@ func truncateForLog(body string, maxLen int) string {
 
 // TriggerEndpoint POSTs to a custom endpoint path and returns immediately.
 // Use this for fire-and-forget triggers like alert mode.
-func (c *Client) TriggerEndpoint(ctx context.Context, endpoint string) TriggerResult {
+//
+// A non-empty correlationID is sent as X-Correlation-ID and attached to every
+// log line of this call, retries included, so the request can be found in the
+// data-platform's http_request logs.
+func (c *Client) TriggerEndpoint(ctx context.Context, endpoint, correlationID string) TriggerResult {
 	startTime := time.Now()
 	url := c.baseURL + endpoint
 
-	c.log.Info().
+	log := c.log
+	if correlationID != "" {
+		log = log.With().Str("correlation_id", correlationID).Logger()
+	}
+
+	log.Info().
 		Str("url", url).
 		Msg("triggering endpoint")
 
@@ -138,8 +151,11 @@ func (c *Client) TriggerEndpoint(ctx context.Context, endpoint string) TriggerRe
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.authToken)
+	if correlationID != "" {
+		req.Header.Set(CorrelationHeader, correlationID)
+	}
 
-	result := retry.Do(ctx, c.httpClient, req, c.retryCfg, c.log)
+	result := retry.Do(ctx, c.httpClient, req, c.retryCfg, log)
 
 	triggerResult := TriggerResult{
 		Attempts: result.Attempts,
@@ -148,7 +164,7 @@ func (c *Client) TriggerEndpoint(ctx context.Context, endpoint string) TriggerRe
 
 	if result.FinalError != nil {
 		triggerResult.Error = fmt.Errorf("failed to trigger endpoint: %w", result.FinalError)
-		c.log.Error().
+		log.Error().
 			Err(triggerResult.Error).
 			Str("endpoint", endpoint).
 			Int("attempts", result.Attempts).
@@ -163,7 +179,7 @@ func (c *Client) TriggerEndpoint(ctx context.Context, endpoint string) TriggerRe
 		result.Response.Body.Close()
 		if readErr != nil {
 			triggerResult.Error = fmt.Errorf("failed to read endpoint response body: %w", readErr)
-			c.log.Error().
+			log.Error().
 				Err(triggerResult.Error).
 				Str("endpoint", endpoint).
 				Int("status_code", triggerResult.StatusCode).
@@ -173,7 +189,7 @@ func (c *Client) TriggerEndpoint(ctx context.Context, endpoint string) TriggerRe
 		triggerResult.ResponseBody = string(bodyBytes)
 	} else {
 		triggerResult.Error = fmt.Errorf("no response received from endpoint")
-		c.log.Error().
+		log.Error().
 			Err(triggerResult.Error).
 			Str("endpoint", endpoint).
 			Msg("failed to trigger endpoint")
@@ -187,7 +203,7 @@ func (c *Client) TriggerEndpoint(ctx context.Context, endpoint string) TriggerRe
 			triggerResult.StatusCode,
 			bodySnippet,
 		)
-		c.log.Error().
+		log.Error().
 			Err(triggerResult.Error).
 			Str("endpoint", endpoint).
 			Int("attempts", result.Attempts).
@@ -199,7 +215,7 @@ func (c *Client) TriggerEndpoint(ctx context.Context, endpoint string) TriggerRe
 	}
 
 	triggerResult.Success = true
-	c.log.Info().
+	log.Info().
 		Str("endpoint", endpoint).
 		Int("attempts", result.Attempts).
 		Int("status_code", triggerResult.StatusCode).

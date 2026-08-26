@@ -9,12 +9,18 @@ import (
 	"cron-runner/internal/pipeline"
 	"cron-runner/internal/reporter"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
 // TriggerTask posts to an endpoint once and returns.
 // Retries are handled by the pipeline client.
 // If Reporter is set, an execution report is pushed to the data-platform after each run.
+//
+// Every run gets a fresh correlation id. It travels to the data-platform as
+// X-Correlation-ID (echoed on its http_request log line) and is logged here on
+// trigger_succeeded / trigger_failed, so one id joins a cron-runner run to the
+// request it produced downstream.
 type TriggerTask struct {
 	Client   *pipeline.Client
 	Endpoint string // path, plus optional query string, appended to the client's base URL
@@ -34,8 +40,11 @@ func (t *TriggerTask) ReportName() string {
 }
 
 func (t *TriggerTask) Run(ctx context.Context) error {
+	cid := uuid.NewString()
+	log := t.Log.With().Str("correlation_id", cid).Logger()
+
 	triggeredAt := time.Now()
-	result := t.Client.TriggerEndpoint(ctx, t.Endpoint)
+	result := t.Client.TriggerEndpoint(ctx, t.Endpoint, cid)
 	completedAt := time.Now()
 	durationMs := completedAt.Sub(triggeredAt).Milliseconds()
 
@@ -68,9 +77,15 @@ func (t *TriggerTask) Run(ctx context.Context) error {
 	}
 
 	if !result.Success {
+		log.Error().
+			Err(result.Error).
+			Int("attempts", result.Attempts).
+			Int("status_code", result.StatusCode).
+			Dur("duration", result.Duration).
+			Msg("trigger_failed")
 		return fmt.Errorf("trigger failed after %d attempts: %w", result.Attempts, result.Error)
 	}
-	t.Log.Info().
+	log.Info().
 		Int("attempts", result.Attempts).
 		Int("status_code", result.StatusCode).
 		Dur("duration", result.Duration).

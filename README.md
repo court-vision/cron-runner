@@ -37,8 +37,8 @@ cron-runner/
 │   ├── task/                  # Task interface + TriggerTask (fire-and-forget POST) and PollTask (start job, poll to completion)
 │   ├── pipeline/client.go     # HTTP client: TriggerEndpoint, FetchEndpoint, TriggerAll (+ retries)
 │   ├── retry/retry.go         # Exponential backoff with Retry-After support
-│   ├── reporter/reporter.go   # Async POST of each run's outcome to /v1/internal/cron/job-runs
-│   ├── server/server.go       # GET /health and GET /status
+│   ├── reporter/reporter.go   # Async POST of each run's outcome to /v1/internal/cron/job-runs (one retry)
+│   ├── server/server.go       # GET /health (Railway healthcheck, version) and GET /status
 │   └── logger/logger.go       # zerolog setup (JSON or console)
 ├── Dockerfile
 ├── .env.example               # Local defaults; copy to .env
@@ -106,7 +106,7 @@ All defined in [`internal/config/config.go`](internal/config/config.go). Duratio
 | `POLL_INITIAL_INTERVAL` | no | `5s` | `PollTask` only: first status-poll interval. No registered job uses `PollTask` today. |
 | `POLL_MAX_INTERVAL` | no | `30s` | `PollTask` only: poll interval ceiling (grows 1.5x per poll). |
 | `POLL_MAX_WAIT_TIME` | no | `15m` | `PollTask` only: give up waiting for job completion. |
-| `HTTP_PORT` | no | `8082` | Port for `/health` and `/status`. |
+| `HTTP_PORT` | no | `$PORT`, else `8082` | Port for `/health` and `/status`. Falls back to `PORT` (which Railway injects and points its healthcheck at) before the default, so leave both unset on Railway. |
 | `DRAIN_TIMEOUT` | no | `30s` | On `SIGTERM`/`SIGINT`, how long to wait for in-flight jobs before exiting. |
 | `LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, or `error`. |
 | `LOG_JSON` | no | `true` | `true` for JSON lines (production), `false` for a human-readable console writer. |
@@ -115,11 +115,17 @@ Job-specific settings (endpoints, schedules, timeouts) are deliberately **not** 
 
 ## HTTP endpoints
 
-The process listens on `HTTP_PORT` (default `8082`). Both routes are unauthenticated and read-only.
+The process listens on `HTTP_PORT`, falling back to `PORT` and then `8082`. Both routes are unauthenticated and read-only.
 
 ### `GET /health`
 
-Railway health check. Returns `200 {"status":"ok"}` once the process is up.
+Railway health check and the target for an uptime monitor. Always `200` while the process is running — the scheduler has no external dependency to gate on (the data-platform's own `/health` covers the database).
+
+```json
+{"status":"ok","uptime":"3h12m5s","jobs":6,"version":"270eb2e"}
+```
+
+`version` is the first seven characters of `RAILWAY_GIT_COMMIT_SHA`, or `dev` outside Railway — the quickest way to confirm which commit a deployment is running.
 
 ### `GET /status`
 
@@ -167,6 +173,17 @@ Every trigger goes through `internal/retry`:
 
 A run that exhausts its retries is reported as `failure` with the last HTTP status and error, and the next scheduled tick tries again from scratch.
 
+The run report itself (`POST /v1/internal/cron/job-runs`) is sent asynchronously and retried once, after 2 s, on a transport error or `5xx`; a `4xx` is logged and dropped. A lost report never fails the job, but a lost *failure* report is a missed alert (see below), which is why it gets one retry.
+
+## Alerting
+
+The cron-runner does not alert on its own and carries no Sentry SDK. Two layers cover it:
+
+- **Job failures** are alerted by the data-platform, not here. Every run's `RunReport` lands in `nba.cron_job_runs`, and the data-platform's alert notifier fires on a *streak* of consecutive failures per job (thresholds are per job — e.g. three `live-stats` failures in a row, one `deploy` failure) and again on recovery. A single failed tick is noise by design, since the next tick retries; that is why the threshold is a streak and why the reporter retries a failed report once.
+- **A crashed or restart-looping process** is caught by Railway: the project webhook (deploy crashed / failed) posts to the ops Discord channel, and the service's healthcheck path is `/health`. If the process is up, the scheduler is running.
+
+For a manual look, `GET /health` says which commit is running and `GET /status` shows every job's last result, last error and next fire time. Every trigger logs a `correlation_id` that the data-platform echoes on its `http_request` line (see Logging), so a failed run can be followed into the request it made.
+
 ## Adding a job
 
 1. Append a `scheduler.JobDef` to `RegisterAll` in [`internal/jobs/registry.go`](internal/jobs/registry.go):
@@ -196,7 +213,8 @@ Nothing else changes: `main.go` registers whatever the registry returns, and `/s
 One service, built from `Dockerfile`, always on (this is **not** a Railway cron-schedule service — the process schedules itself).
 
 - Variables: `BACKEND_URL` (the data-platform's public origin), `PIPELINE_API_TOKEN` (must match the data-platform's), optionally `LOG_LEVEL`.
-- Health check: `GET /health` on port `8082`.
+- Health check: `GET /health` on Railway's `PORT` (the service falls back to it when `HTTP_PORT` is unset). Always `200` while the process runs, so a failing check means the process is down, not degraded.
+- Alerts: none from this service — see **Alerting**. Configure the project webhook for crashed/failed deploys.
 - Restart policy: always. On `SIGTERM` the scheduler stops accepting ticks, in-flight runs get `DRAIN_TIMEOUT` to finish, then the HTTP server closes.
 - A redeploy mid-window is safe: any tick lost during the restart is covered by the next one, and the endpoints dedup on their side.
 
@@ -204,10 +222,12 @@ One service, built from `Dockerfile`, always on (this is **not** a Railway cron-
 
 Structured JSON by default (`LOG_JSON=true`). Every line carries `service=cron-runner`, a `component` (`scheduler`, `pipeline-client`, `reporter`, `http-server`) and, for job output, `job=<name>`.
 
+Every trigger generates a UUID `correlation_id`. It is attached to the pipeline-client lines (retries included) and to the `trigger_succeeded` / `trigger_failed` line, and is sent to the data-platform as `X-Correlation-ID`, where it appears on the matching `http_request` log line. To follow a failure across services: find the `trigger_failed` line here, copy its `correlation_id`, and grep for it in the data-platform's logs.
+
 ```json
 {"level":"info","service":"cron-runner","component":"scheduler","job":"post-game","time":"2026-11-01T02:15:00Z","message":"job_started"}
-{"level":"info","service":"cron-runner","component":"pipeline-client","endpoint":"/v1/internal/pipelines/post-game","status_code":200,"attempts":1,"duration":"245ms","time":"2026-11-01T02:15:00Z","message":"endpoint triggered successfully"}
-{"level":"info","service":"cron-runner","job":"post-game","attempts":1,"status_code":200,"duration":"245ms","time":"2026-11-01T02:15:00Z","message":"trigger_succeeded"}
+{"level":"info","service":"cron-runner","component":"pipeline-client","correlation_id":"6f0c2b1e-4d1a-4c3b-9a7e-2f8d5c1b0a94","endpoint":"/v1/internal/pipelines/post-game","status_code":200,"attempts":1,"duration":"245ms","time":"2026-11-01T02:15:00Z","message":"endpoint triggered successfully"}
+{"level":"info","service":"cron-runner","job":"post-game","correlation_id":"6f0c2b1e-4d1a-4c3b-9a7e-2f8d5c1b0a94","attempts":1,"status_code":200,"duration":"245ms","time":"2026-11-01T02:15:00Z","message":"trigger_succeeded"}
 ```
 
 Set `LOG_JSON=false` for a human-readable console writer during local development.

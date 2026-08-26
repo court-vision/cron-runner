@@ -19,8 +19,8 @@ const recentRunsMax = 20
 // Adding a new job means adding one JobDef to the registry — nothing else changes.
 type JobDef struct {
 	Name        string
-	Schedule    string        // cron expression; 5-field by default, 6-field if WithSeconds is true
-	WithSeconds bool          // if true, Schedule's first field is seconds (e.g. "*/30 * * * * *")
+	Schedule    string // cron expression; 5-field by default, 6-field if WithSeconds is true
+	WithSeconds bool   // if true, Schedule's first field is seconds (e.g. "*/30 * * * * *")
 	Task        task.Task
 	Singleton   bool          // if true, a new run is dropped if the previous is still running
 	Timeout     time.Duration // 0 = no timeout; cancels the job's context when exceeded
@@ -268,6 +268,13 @@ func (s *Scheduler) Statuses() []JobStatus {
 	}
 
 	return statuses
+}
+
+// JobCount returns the number of registered jobs.
+func (s *Scheduler) JobCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.states)
 }
 
 // Uptime returns a human-readable uptime string.

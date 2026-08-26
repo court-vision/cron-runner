@@ -50,7 +50,7 @@ func TestTriggerEndpointSuccess200(t *testing.T) {
 	})
 
 	client := newTestClient("http://example.test", transport)
-	result := client.TriggerEndpoint(context.Background(), "/test")
+	result := client.TriggerEndpoint(context.Background(), "/test", "")
 
 	if !result.Success {
 		t.Fatalf("expected success true, got false with error: %v", result.Error)
@@ -76,7 +76,7 @@ func TestTriggerEndpointFailure500(t *testing.T) {
 	})
 
 	client := newTestClient("http://example.test", transport)
-	result := client.TriggerEndpoint(context.Background(), "/test")
+	result := client.TriggerEndpoint(context.Background(), "/test", "")
 
 	if result.Success {
 		t.Fatalf("expected success false, got true")
@@ -102,7 +102,7 @@ func TestTriggerEndpointFailure404(t *testing.T) {
 	})
 
 	client := newTestClient("http://example.test", transport)
-	result := client.TriggerEndpoint(context.Background(), "/test")
+	result := client.TriggerEndpoint(context.Background(), "/test", "")
 
 	if result.Success {
 		t.Fatalf("expected success false, got true")
@@ -115,5 +115,31 @@ func TestTriggerEndpointFailure404(t *testing.T) {
 	}
 	if result.ResponseBody != "missing" {
 		t.Fatalf("expected response body %q, got %q", "missing", result.ResponseBody)
+	}
+}
+
+func TestTriggerEndpointCorrelationHeader(t *testing.T) {
+	var got []string
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		got = append(got, req.Header.Get(CorrelationHeader))
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Header:     make(http.Header),
+		}, nil
+	})
+
+	client := newTestClient("http://example.test", transport)
+	client.TriggerEndpoint(context.Background(), "/test", "cid-123")
+	client.TriggerEndpoint(context.Background(), "/test", "")
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(got))
+	}
+	if got[0] != "cid-123" {
+		t.Errorf("expected %s %q on the request, got %q", CorrelationHeader, "cid-123", got[0])
+	}
+	if got[1] != "" {
+		t.Errorf("expected no %s header when the id is empty, got %q", CorrelationHeader, got[1])
 	}
 }

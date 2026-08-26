@@ -82,6 +82,7 @@ func Do(ctx context.Context, client *http.Client, req *http.Request, cfg Config,
 	start := time.Now()
 	var lastResp *http.Response
 	var lastErr error
+	attempts := 0 // requests actually sent; reported even when the loop stops early
 
 	for attempt := 0; attempt <= cfg.MaxRetries; attempt++ {
 		if attempt > 0 {
@@ -94,7 +95,7 @@ func Do(ctx context.Context, client *http.Client, req *http.Request, cfg Config,
 			select {
 			case <-ctx.Done():
 				return Result{
-					Attempts:   attempt,
+					Attempts:   attempts,
 					TotalTime:  time.Since(start),
 					FinalError: ctx.Err(),
 				}
@@ -110,6 +111,7 @@ func Do(ctx context.Context, client *http.Client, req *http.Request, cfg Config,
 			Str("url", req.URL.String()).
 			Msg("sending request")
 
+		attempts++
 		resp, err := client.Do(reqCopy)
 		lastResp = resp
 		lastErr = err
@@ -134,7 +136,7 @@ func Do(ctx context.Context, client *http.Client, req *http.Request, cfg Config,
 		if !IsRetryable(resp, nil) {
 			return Result{
 				Response:  resp,
-				Attempts:  attempt + 1,
+				Attempts:  attempts,
 				TotalTime: time.Since(start),
 			}
 		}
@@ -149,7 +151,7 @@ func Do(ctx context.Context, client *http.Client, req *http.Request, cfg Config,
 
 	return Result{
 		Response:   lastResp,
-		Attempts:   cfg.MaxRetries + 1,
+		Attempts:   attempts,
 		TotalTime:  time.Since(start),
 		FinalError: lastErr,
 	}

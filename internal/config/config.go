@@ -29,7 +29,8 @@ type Config struct {
 	PollMaxInterval     time.Duration
 	PollMaxWaitTime     time.Duration
 
-	// HTTP server
+	// HTTP server. HTTP_PORT, else PORT (Railway injects it and points its
+	// healthcheck at it), else 8082.
 	HTTPPort string
 
 	// Graceful shutdown drain window
@@ -53,7 +54,7 @@ func Load() (*Config, error) {
 		PollInitialInterval: getEnvDurationOrDefault("POLL_INITIAL_INTERVAL", 5*time.Second),
 		PollMaxInterval:     getEnvDurationOrDefault("POLL_MAX_INTERVAL", 30*time.Second),
 		PollMaxWaitTime:     getEnvDurationOrDefault("POLL_MAX_WAIT_TIME", 15*time.Minute),
-		HTTPPort:            getEnvOrDefault("HTTP_PORT", "8082"),
+		HTTPPort:            getEnvOrDefault("HTTP_PORT", getEnvOrDefault("PORT", "8082")),
 		DrainTimeout:        getEnvDurationOrDefault("DRAIN_TIMEOUT", 30*time.Second),
 		LogLevel:            getEnvOrDefault("LOG_LEVEL", "info"),
 		LogJSON:             getEnvBoolOrDefault("LOG_JSON", true),
