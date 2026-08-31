@@ -45,6 +45,12 @@ import (
 //	               12:00 UTC (8 AM EDT / 7 AM EST).
 //	playoffs       Playoff bracket / series standings → nba.playoff_series.
 //	               Daily 06:00 UTC (2 AM EDT / 1 AM EST), after the last game.
+//	preseason-market  Draft-market snapshot (ESPN draft ranks, ADP, auction
+//	               values — and stat projections once ESPN publishes them) →
+//	               nba.draft_market / nba.player_projections. Daily 11:00 UTC
+//	               (7 AM EDT / 6 AM EST). The endpoint no-ops outside the
+//	               Aug 15–Oct 31 draft-prep window and while the public league
+//	               has not rolled to the target season.
 //	deploy         GitHub repository_dispatch that promotes backend and
 //	               data-platform to production. Daily 08:00 UTC (4 AM EDT /
 //	               3 AM EST). The backend also auto-deploys on push, so in
@@ -100,6 +106,13 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 			Singleton: true,
 			Timeout:   5 * time.Minute,
 			Task:      trigger("playoffs", "/v1/internal/pipelines/playoffs"),
+		},
+		{
+			Name:      "preseason-market",
+			Schedule:  "0 11 * * *", // 11:00 UTC = 7 AM EDT / 6 AM EST — daily draft-prep snapshot; endpoint self-gates
+			Singleton: true,
+			Timeout:   5 * time.Minute,
+			Task:      trigger("preseason-market", "/v1/internal/pipelines/preseason-market"),
 		},
 		{
 			Name:      "deploy",
