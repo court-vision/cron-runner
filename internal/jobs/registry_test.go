@@ -50,6 +50,7 @@ var expected = []struct {
 	{"post-game", "0/15 2-13 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/post-game"},
 	{"schedule-sync", "0 12 * * 1", false, true, 5 * time.Minute, "/v1/internal/pipelines/game-start-times?source=cdn"},
 	{"playoffs", "0 6 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/playoffs"},
+	{"preseason-market", "0 11 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/preseason-market"},
 	{"deploy", "0 8 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/deploy"},
 }
 
