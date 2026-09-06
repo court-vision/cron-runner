@@ -22,7 +22,7 @@ func TestJobNameFromEndpoint(t *testing.T) {
 	cases := map[string]string{
 		"/v1/internal/pipelines/pre-game":                    "pre-game",
 		"/v1/internal/pipelines/game-start-times?source=cdn": "game-start-times",
-		"/v1/internal/pipelines/deploy/":                     "deploy",
+		"/v1/internal/pipelines/post-game/":                  "post-game",
 		"/v1/internal/pipelines/playoffs#frag":               "playoffs",
 		"live-stats":                                         "live-stats",
 	}
