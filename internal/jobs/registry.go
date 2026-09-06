@@ -51,10 +51,6 @@ import (
 //	               (7 AM EDT / 6 AM EST). The endpoint no-ops outside the
 //	               Aug 15–Oct 31 draft-prep window and while the public league
 //	               has not rolled to the target season.
-//	deploy         GitHub repository_dispatch that promotes backend and
-//	               data-platform to production. Daily 08:00 UTC (4 AM EDT /
-//	               3 AM EST). The backend also auto-deploys on push, so in
-//	               practice this is the data-platform's nightly release.
 
 // RegisterAll returns all scheduled job definitions.
 // To add a new job, append a JobDef here — no other changes needed.
@@ -113,13 +109,6 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 			Singleton: true,
 			Timeout:   5 * time.Minute,
 			Task:      trigger("preseason-market", "/v1/internal/pipelines/preseason-market"),
-		},
-		{
-			Name:      "deploy",
-			Schedule:  "0 8 * * *", // 08:00 UTC = 3 AM CDT / 2 AM CST
-			Singleton: true,
-			Timeout:   5 * time.Minute,
-			Task:      trigger("deploy", "/v1/internal/pipelines/deploy"),
 		},
 	}
 }

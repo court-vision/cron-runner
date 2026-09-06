@@ -57,7 +57,6 @@ All schedules are evaluated in **UTC** (`gocron.WithLocation(time.UTC)`). NBA ga
 | `post-game` | `0/15 2-13 * * *` | every 15 min, 10:00 PM–9:45 AM EDT (9:00 PM–8:45 AM EST) | `/v1/internal/pipelines/post-game` | Only inside a window that opens 150 min after the latest tip and lasts 210 min, and only once every game is Final. Per-pipeline dedup; ESPN-gated pipelines wait for ESPN's scoring period to advance (2:30 AM CST fallback). |
 | `schedule-sync` | `0 12 * * 1` | Mondays 8:00 AM EDT (7:00 AM EST) | `/v1/internal/pipelines/game-start-times?source=cdn` | None on the cron side — an idempotent upsert of future `nba.games` rows (tip-off times, moved/postponed games) from the NBA CDN feed. |
 | `playoffs` | `0 6 * * *` | daily 2:00 AM EDT (1:00 AM EST) | `/v1/internal/pipelines/playoffs` | None on the cron side — upserts `nba.playoff_series` from NBA SeriesStandings. |
-| `deploy` | `0 8 * * *` | daily 4:00 AM EDT (3:00 AM EST / 2:00 AM CST) | `/v1/internal/pipelines/deploy` | Fires a GitHub `repository_dispatch` (`nightly-deploy`) at the backend and data-platform repos; 503 if the GitHub deploy config is missing. The backend also auto-deploys on push, so in practice this is the data-platform's nightly release. |
 
 Job-level settings that apply to all of the above:
 
@@ -179,7 +178,7 @@ The run report itself (`POST /v1/internal/cron/job-runs`) is sent asynchronously
 
 The cron-runner does not alert on its own and carries no Sentry SDK. Two layers cover it:
 
-- **Job failures** are alerted by the data-platform, not here. Every run's `RunReport` lands in `nba.cron_job_runs`, and the data-platform's alert notifier fires on a *streak* of consecutive failures per job (thresholds are per job — e.g. three `live-stats` failures in a row, one `deploy` failure) and again on recovery. A single failed tick is noise by design, since the next tick retries; that is why the threshold is a streak and why the reporter retries a failed report once.
+- **Job failures** are alerted by the data-platform, not here. Every run's `RunReport` lands in `nba.cron_job_runs`, and the data-platform's alert notifier fires on a *streak* of consecutive failures per job (thresholds are per job — e.g. three `live-stats` failures in a row) and again on recovery. A single failed tick is noise by design, since the next tick retries; that is why the threshold is a streak and why the reporter retries a failed report once.
 - **A crashed or restart-looping process** is caught by Railway: the project webhook (deploy crashed / failed) posts to the ops Discord channel, and the service's healthcheck path is `/health`. If the process is up, the scheduler is running.
 
 For a manual look, `GET /health` says which commit is running and `GET /status` shows every job's last result, last error and next fire time. Every trigger logs a `correlation_id` that the data-platform echoes on its `http_request` line (see Logging), so a failed run can be followed into the request it made.

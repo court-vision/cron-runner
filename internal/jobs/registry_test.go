@@ -51,7 +51,6 @@ var expected = []struct {
 	{"schedule-sync", "0 12 * * 1", false, true, 5 * time.Minute, "/v1/internal/pipelines/game-start-times?source=cdn"},
 	{"playoffs", "0 6 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/playoffs"},
 	{"preseason-market", "0 11 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/preseason-market"},
-	{"deploy", "0 8 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/deploy"},
 }
 
 func TestRegisterAllDefinitions(t *testing.T) {
@@ -143,9 +142,8 @@ func TestScheduleNextFire(t *testing.T) {
 		// schedule-sync: Mondays 12:00 UTC (2026-08-31 is a Monday).
 		{"schedule-sync", utc(2026, time.August, 25, 0, 0, 0), utc(2026, time.August, 31, 12, 0, 0)},
 		{"schedule-sync", utc(2026, time.August, 31, 12, 0, 0), utc(2026, time.September, 7, 12, 0, 0)},
-		// playoffs / deploy: once daily.
+		// playoffs: once daily.
 		{"playoffs", utc(2026, time.April, 20, 6, 0, 0), utc(2026, time.April, 21, 6, 0, 0)},
-		{"deploy", utc(2026, time.August, 25, 7, 59, 0), utc(2026, time.August, 25, 8, 0, 0)},
 	}
 
 	for _, c := range cases {
