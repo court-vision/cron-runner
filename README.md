@@ -57,11 +57,12 @@ All schedules are evaluated in **UTC** (`gocron.WithLocation(time.UTC)`). NBA ga
 | `post-game` | `0/15 2-13 * * *` | every 15 min, 10:00 PM–9:45 AM EDT (9:00 PM–8:45 AM EST) | `/v1/internal/pipelines/post-game` | Only inside a window that opens 150 min after the latest tip and lasts 210 min, and only once every game is Final. Per-pipeline dedup; ESPN-gated pipelines wait for ESPN's scoring period to advance (2:30 AM CST fallback). |
 | `schedule-sync` | `0 12 * * 1` | Mondays 8:00 AM EDT (7:00 AM EST) | `/v1/internal/pipelines/game-start-times?source=cdn` | None on the cron side — an idempotent upsert of future `nba.games` rows (tip-off times, moved/postponed games) from the NBA CDN feed. |
 | `playoffs` | `0 6 * * *` | daily 2:00 AM EDT (1:00 AM EST) | `/v1/internal/pipelines/playoffs` | None on the cron side — upserts `nba.playoff_series` from NBA SeriesStandings. |
+| `scheduled-pickups` | `* * * * *` | every minute, all day | `/v1/internal/pipelines/scheduled-pickups` | No-op (one `EXISTS` query) unless a scheduled pickup is due; then asks the backend to attempt the due rows and emails each outcome. A pickup is due at the previous day's first tip-off or at the 02:00 ET rollover, with retries between. |
 
 Job-level settings that apply to all of the above:
 
 - **Singleton** — every job runs in `LimitModeReschedule`: if the previous run is still in flight, the new tick is skipped.
-- **Timeout** — every trigger job except `live-stats` cancels its request context after 5 minutes. The endpoints return immediately and do their work in the background, so this only bites if the data-platform is hung.
+- **Timeout** — every trigger job except `live-stats` cancels its request context after 5 minutes (`scheduled-pickups` after 2, matching its cadence). The endpoints return immediately and do their work in the background, so this only bites if the data-platform is hung.
 - **Reporting** — after every run, `TriggerTask` POSTs a `RunReport` (`job_name`, timings, HTTP status, attempts, error, response snippet) to `/v1/internal/cron/job-runs`. The `job_name` is the registry name, which is what the data-platform dashboard keys on.
 
 All of this lives in one file: [`internal/jobs/registry.go`](internal/jobs/registry.go). The table above is asserted by `internal/jobs/registry_test.go`, so a schedule edit has to be made in both places.
