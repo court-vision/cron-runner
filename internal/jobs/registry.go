@@ -51,6 +51,12 @@ import (
 //	               (7 AM EDT / 6 AM EST). The endpoint no-ops outside the
 //	               Aug 15–Oct 31 draft-prep window and while the public league
 //	               has not rolled to the target season.
+//	scheduled-pickups  The executor tick for usr.scheduled_pickups: the endpoint
+//	               asks the backend to attempt every due pickup and emails each
+//	               outcome. Every minute, all day — a pickup is due at the previous
+//	               day's first tip-off (from noon ET on) or at the 02:00 ET
+//	               rollover, with retries in between. An idle tick is one EXISTS
+//	               query on the data-platform side.
 
 // RegisterAll returns all scheduled job definitions.
 // To add a new job, append a JobDef here — no other changes needed.
@@ -109,6 +115,13 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 			Singleton: true,
 			Timeout:   5 * time.Minute,
 			Task:      trigger("preseason-market", "/v1/internal/pipelines/preseason-market"),
+		},
+		{
+			Name:      "scheduled-pickups",
+			Schedule:  "* * * * *", // every minute; the endpoint no-ops unless a pickup is due
+			Singleton: true,
+			Timeout:   2 * time.Minute,
+			Task:      trigger("scheduled-pickups", "/v1/internal/pipelines/scheduled-pickups"),
 		},
 	}
 }
