@@ -52,6 +52,7 @@ var expected = []struct {
 	{"playoffs", "0 6 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/playoffs"},
 	{"preseason-market", "0 11 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/preseason-market"},
 	{"scheduled-pickups", "* * * * *", false, true, 2 * time.Minute, "/v1/internal/pipelines/scheduled-pickups"},
+	{"availability", "*/2 * * * *", false, true, 2 * time.Minute, "/v1/internal/pipelines/availability"},
 }
 
 func TestRegisterAllDefinitions(t *testing.T) {
@@ -148,6 +149,10 @@ func TestScheduleNextFire(t *testing.T) {
 		// scheduled-pickups: every minute, no quiet hours.
 		{"scheduled-pickups", utc(2026, time.November, 1, 12, 0, 30), utc(2026, time.November, 1, 12, 1, 0)},
 		{"scheduled-pickups", utc(2026, time.November, 1, 23, 59, 0), utc(2026, time.November, 2, 0, 0, 0)},
+		// availability: even minutes only, all day (the endpoint's slots count on it).
+		{"availability", utc(2026, time.November, 1, 12, 0, 0), utc(2026, time.November, 1, 12, 2, 0)},
+		{"availability", utc(2026, time.November, 1, 12, 1, 0), utc(2026, time.November, 1, 12, 2, 0)},
+		{"availability", utc(2026, time.November, 1, 23, 58, 30), utc(2026, time.November, 2, 0, 0, 0)},
 	}
 
 	for _, c := range cases {

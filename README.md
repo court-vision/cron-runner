@@ -58,11 +58,12 @@ All schedules are evaluated in **UTC** (`gocron.WithLocation(time.UTC)`). NBA ga
 | `schedule-sync` | `0 12 * * 1` | Mondays 8:00 AM EDT (7:00 AM EST) | `/v1/internal/pipelines/game-start-times?source=cdn` | None on the cron side — an idempotent upsert of future `nba.games` rows (tip-off times, moved/postponed games) from the NBA CDN feed. |
 | `playoffs` | `0 6 * * *` | daily 2:00 AM EDT (1:00 AM EST) | `/v1/internal/pipelines/playoffs` | None on the cron side — upserts `nba.playoff_series` from NBA SeriesStandings. |
 | `scheduled-pickups` | `* * * * *` | every minute, all day | `/v1/internal/pipelines/scheduled-pickups` | No-op (one `EXISTS` query) unless a scheduled pickup is due; then asks the backend to attempt the due rows and emails each outcome. A pickup is due at the previous day's first tip-off or at the 02:00 ET rollover, with retries between. |
+| `availability` | `*/2 * * * *` | every even minute, all day | `/v1/internal/pipelines/availability` | No-op (one `nba.games` read) unless a source is due: ESPN's injury list every 10 min and every tick in the 90 min before a tip, ESPN fantasy every 15 min on a game day from 11 AM ET (hourly otherwise), each game's box score in the 100 min before its tip. Writes only what changed to `nba.availability_reports` and the verdicts in `nba.player_availability`. Its slots assume even minutes. |
 
 Job-level settings that apply to all of the above:
 
 - **Singleton** — every job runs in `LimitModeReschedule`: if the previous run is still in flight, the new tick is skipped.
-- **Timeout** — every trigger job except `live-stats` cancels its request context after 5 minutes (`scheduled-pickups` after 2, matching its cadence). The endpoints return immediately and do their work in the background, so this only bites if the data-platform is hung.
+- **Timeout** — every trigger job except `live-stats` cancels its request context after 5 minutes (`scheduled-pickups` and `availability` after 2, matching their cadence). The batch endpoints return immediately and do their work in the background, so this only bites if the data-platform is hung; `scheduled-pickups` and `availability` answer when their pipeline finishes.
 - **Reporting** — after every run, `TriggerTask` POSTs a `RunReport` (`job_name`, timings, HTTP status, attempts, error, response snippet) to `/v1/internal/cron/job-runs`. The `job_name` is the registry name, which is what the data-platform dashboard keys on.
 
 All of this lives in one file: [`internal/jobs/registry.go`](internal/jobs/registry.go). The table above is asserted by `internal/jobs/registry_test.go`, so a schedule edit has to be made in both places.

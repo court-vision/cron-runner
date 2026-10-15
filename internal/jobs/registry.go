@@ -57,6 +57,13 @@ import (
 //	               day's first tip-off (from noon ET on) or at the 02:00 ET
 //	               rollover, with retries in between. An idle tick is one EXISTS
 //	               query on the data-platform side.
+//	availability   Injury lists and pre-tip box scores → nba.availability_reports
+//	               and the per-game verdicts in nba.player_availability. Every
+//	               2 minutes, all day: the endpoint decides from the clock and
+//	               the date's games which source is due (ESPN's injury list every
+//	               10 min and every tick in the 90 min before a tip, ESPN fantasy
+//	               every 15 min on a game day, each box score in the 100 min
+//	               before its tip). Its slots assume even minutes, so keep */2.
 
 // RegisterAll returns all scheduled job definitions.
 // To add a new job, append a JobDef here — no other changes needed.
@@ -122,6 +129,13 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 			Singleton: true,
 			Timeout:   2 * time.Minute,
 			Task:      trigger("scheduled-pickups", "/v1/internal/pipelines/scheduled-pickups"),
+		},
+		{
+			Name:      "availability",
+			Schedule:  "*/2 * * * *", // every even minute; the endpoint no-ops unless a source is due
+			Singleton: true,
+			Timeout:   2 * time.Minute,
+			Task:      trigger("availability", "/v1/internal/pipelines/availability"),
 		},
 	}
 }
