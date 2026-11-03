@@ -62,7 +62,7 @@ import (
 //	               2 minutes, all day: the endpoint decides from the clock and
 //	               the date's games which source is due (ESPN's injury list every
 //	               10 min and every tick in the 90 min before a tip, ESPN fantasy
-//	               every 15 min on a game day, each box score in the 100 min
+//	               every 15 min on a game day, each box score in the 35 min
 //	               before its tip). Its slots assume even minutes, so keep */2.
 
 // RegisterAll returns all scheduled job definitions.
