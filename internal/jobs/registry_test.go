@@ -54,6 +54,7 @@ var expected = []struct {
 	{"scheduled-pickups", "* * * * *", false, true, 2 * time.Minute, "/v1/internal/pipelines/scheduled-pickups"},
 	{"availability", "*/2 * * * *", false, true, 2 * time.Minute, "/v1/internal/pipelines/availability"},
 	{"dime-checkins", "*/15 * * * *", false, true, 2 * time.Minute, "/v1/internal/pipelines/dime-checkins"},
+	{"news", "*/5 * * * *", false, true, 4 * time.Minute, "/v1/internal/pipelines/news"},
 }
 
 func TestRegisterAllDefinitions(t *testing.T) {
@@ -158,6 +159,10 @@ func TestScheduleNextFire(t *testing.T) {
 		{"dime-checkins", utc(2026, time.November, 1, 12, 0, 0), utc(2026, time.November, 1, 12, 15, 0)},
 		{"dime-checkins", utc(2026, time.November, 1, 13, 59, 0), utc(2026, time.November, 1, 14, 0, 0)},
 		{"dime-checkins", utc(2026, time.November, 1, 23, 50, 0), utc(2026, time.November, 2, 0, 0, 0)},
+		// news: on every fifth minute, all day (the data-platform counts its ticks in 5-minute slots).
+		{"news", utc(2026, time.November, 1, 12, 0, 0), utc(2026, time.November, 1, 12, 5, 0)},
+		{"news", utc(2026, time.November, 1, 12, 7, 30), utc(2026, time.November, 1, 12, 10, 0)},
+		{"news", utc(2026, time.November, 1, 23, 58, 0), utc(2026, time.November, 2, 0, 0, 0)},
 	}
 
 	for _, c := range cases {
