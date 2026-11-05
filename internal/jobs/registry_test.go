@@ -53,6 +53,7 @@ var expected = []struct {
 	{"preseason-market", "0 11 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/preseason-market"},
 	{"scheduled-pickups", "* * * * *", false, true, 2 * time.Minute, "/v1/internal/pipelines/scheduled-pickups"},
 	{"availability", "*/2 * * * *", false, true, 2 * time.Minute, "/v1/internal/pipelines/availability"},
+	{"dime-checkins", "*/15 * * * *", false, true, 2 * time.Minute, "/v1/internal/pipelines/dime-checkins"},
 }
 
 func TestRegisterAllDefinitions(t *testing.T) {
@@ -153,6 +154,10 @@ func TestScheduleNextFire(t *testing.T) {
 		{"availability", utc(2026, time.November, 1, 12, 0, 0), utc(2026, time.November, 1, 12, 2, 0)},
 		{"availability", utc(2026, time.November, 1, 12, 1, 0), utc(2026, time.November, 1, 12, 2, 0)},
 		{"availability", utc(2026, time.November, 1, 23, 58, 30), utc(2026, time.November, 2, 0, 0, 0)},
+		// dime-checkins: on the quarter hour, all day (the check-ins' windows open on one).
+		{"dime-checkins", utc(2026, time.November, 1, 12, 0, 0), utc(2026, time.November, 1, 12, 15, 0)},
+		{"dime-checkins", utc(2026, time.November, 1, 13, 59, 0), utc(2026, time.November, 1, 14, 0, 0)},
+		{"dime-checkins", utc(2026, time.November, 1, 23, 50, 0), utc(2026, time.November, 2, 0, 0, 0)},
 	}
 
 	for _, c := range cases {
