@@ -64,6 +64,12 @@ import (
 //	               10 min and every tick in the 90 min before a tip, ESPN fantasy
 //	               every 15 min on a game day, each box score in the 35 min
 //	               before its tip). Its slots assume even minutes, so keep */2.
+//	dime-checkins  Dime's check-ins, in shadow: the endpoint asks the backend to
+//	               start the check-ins that are due on each team Dime runs on
+//	               (the morning one from 09:00 ET, pre-lock from 45 min before
+//	               the first tip, the night follow-up from 06:00 ET). Every 15
+//	               minutes, all day; an idle tick is one EXISTS query on the
+//	               data-platform side, and the turns run on in the backend.
 
 // RegisterAll returns all scheduled job definitions.
 // To add a new job, append a JobDef here — no other changes needed.
@@ -136,6 +142,13 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 			Singleton: true,
 			Timeout:   2 * time.Minute,
 			Task:      trigger("availability", "/v1/internal/pipelines/availability"),
+		},
+		{
+			Name:      "dime-checkins",
+			Schedule:  "*/15 * * * *", // every quarter hour; the endpoint no-ops unless a team is switched on
+			Singleton: true,
+			Timeout:   2 * time.Minute,
+			Task:      trigger("dime-checkins", "/v1/internal/pipelines/dime-checkins"),
 		},
 	}
 }
