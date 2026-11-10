@@ -27,6 +27,9 @@ type TriggerTask struct {
 	JobName  string // optional; job_name sent in run reports. Defaults to Endpoint's last path segment.
 	Log      zerolog.Logger
 	Reporter *reporter.Reporter // optional; nil = no push reporting
+	// CheckStatus also fails a 2xx answer whose body says status "error" (a
+	// pipeline endpoint that ran its pipeline and reports how it went).
+	CheckStatus bool
 }
 
 func (t *TriggerTask) Name() string { return "trigger:" + t.Endpoint }
@@ -45,6 +48,11 @@ func (t *TriggerTask) Run(ctx context.Context) error {
 
 	triggeredAt := time.Now()
 	result := t.Client.TriggerEndpoint(ctx, t.Endpoint, cid)
+	if t.CheckStatus && result.Success {
+		if err := pipeline.ReportedError(result.ResponseBody); err != nil {
+			result.Success, result.Error = false, err
+		}
+	}
 	completedAt := time.Now()
 	durationMs := completedAt.Sub(triggeredAt).Milliseconds()
 

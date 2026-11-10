@@ -52,6 +52,37 @@ func NewClient(cfg *config.Config, log zerolog.Logger) *Client {
 	}
 }
 
+// WithRequestTimeout returns a copy of the client whose requests may each run
+// for d instead of REQUEST_TIMEOUT: for an endpoint that answers only when its
+// work is done (the news feed), so a slow run isn't cancelled and retried while
+// the first is still going. Retries, auth and logging are the same.
+func (c *Client) WithRequestTimeout(d time.Duration) *Client {
+	cp := *c
+	cp.httpClient = &http.Client{Timeout: d}
+	return &cp
+}
+
+// RequestTimeout is how long each request may run.
+func (c *Client) RequestTimeout() time.Duration { return c.httpClient.Timeout }
+
+// ReportedError reads a 2xx response body in the data-platform's envelope
+// ({"status": ..., "message": ...}) and returns an error when its status is
+// "error": a pipeline that failed but answered 200. Any other body, or one that
+// isn't that JSON, is nil.
+func ReportedError(body string) error {
+	var env struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal([]byte(body), &env) != nil || env.Status != "error" {
+		return nil
+	}
+	if env.Message == "" {
+		return fmt.Errorf("endpoint reported status error")
+	}
+	return fmt.Errorf("endpoint reported status error: %s", truncateForLog(env.Message, endpointErrorBodyMaxLen))
+}
+
 // TriggerResult contains the outcome of a pipeline trigger.
 type TriggerResult struct {
 	Success      bool

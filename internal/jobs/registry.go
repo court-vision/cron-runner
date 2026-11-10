@@ -70,6 +70,15 @@ import (
 //	               the first tip, the night follow-up from 06:00 ET). Every 15
 //	               minutes, all day; an idle tick is one EXISTS query on the
 //	               data-platform side, and the turns run on in the backend.
+//	news           The news feed: ESPN's injury notes, Rotowire and a third of the
+//	               ESPN per-player watch set every tick, RealGM one tick in three,
+//	               into nba.news_items; new items about rostered players go to
+//	               Dime's event check-ins. Every 5 minutes, all day; the
+//	               data-platform counts ticks in 5-minute slots, so keep */5.
+
+// newsTimeout bounds a news tick, its request included: under the 5-minute
+// schedule, so a tick never runs into the next.
+const newsTimeout = 4 * time.Minute
 
 // RegisterAll returns all scheduled job definitions.
 // To add a new job, append a JobDef here — no other changes needed.
@@ -85,6 +94,13 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 			Reporter: rep,
 		}
 	}
+
+	// The news tick answers once its reads are stored, which can take most of the
+	// job's four minutes: its requests get that long (not REQUEST_TIMEOUT), and a
+	// tick whose pipeline failed is reported failed though it answered 200.
+	news := trigger("news", "/v1/internal/pipelines/news")
+	news.Client = client.WithRequestTimeout(newsTimeout)
+	news.CheckStatus = true
 
 	return []scheduler.JobDef{
 		{
@@ -149,6 +165,13 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 			Singleton: true,
 			Timeout:   2 * time.Minute,
 			Task:      trigger("dime-checkins", "/v1/internal/pipelines/dime-checkins"),
+		},
+		{
+			Name:      "news",
+			Schedule:  "*/5 * * * *", // every 5 minutes; the endpoint answers when the tick's reads are stored
+			Singleton: true,
+			Timeout:   newsTimeout,
+			Task:      news,
 		},
 	}
 }
