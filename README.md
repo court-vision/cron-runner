@@ -65,7 +65,7 @@ All schedules are evaluated in **UTC** (`gocron.WithLocation(time.UTC)`). NBA ga
 Job-level settings that apply to all of the above:
 
 - **Singleton** — every job runs in `LimitModeReschedule`: if the previous run is still in flight, the new tick is skipped.
-- **Timeout** — every trigger job except `live-stats` cancels its request context after 5 minutes (`scheduled-pickups`, `availability` and `dime-checkins` after 2, `news` after 4). The batch endpoints return immediately and do their work in the background, so this only bites if the data-platform is hung; `scheduled-pickups`, `availability` and `news` answer when their pipeline finishes.
+- **Timeout** — every trigger job except `live-stats` cancels its request context after 5 minutes (`scheduled-pickups`, `availability` and `dime-checkins` after 2, `news` after 4). The batch endpoints return immediately and do their work in the background, so this only bites if the data-platform is hung; `scheduled-pickups`, `availability` and `news` answer when their pipeline finishes. `news` is the one whose requests may run past `REQUEST_TIMEOUT`: each may take its whole 4 minutes, so a slow tick isn't cancelled and retried while the first still runs, and a tick whose pipeline answered 200 with status `error` is reported as failed.
 - **Reporting** — after every run, `TriggerTask` POSTs a `RunReport` (`job_name`, timings, HTTP status, attempts, error, response snippet) to `/v1/internal/cron/job-runs`. The `job_name` is the registry name, which is what the data-platform dashboard keys on.
 
 All of this lives in one file: [`internal/jobs/registry.go`](internal/jobs/registry.go). The table above is asserted by `internal/jobs/registry_test.go`, so a schedule edit has to be made in both places.

@@ -76,6 +76,10 @@ import (
 //	               Dime's event check-ins. Every 5 minutes, all day; the
 //	               data-platform counts ticks in 5-minute slots, so keep */5.
 
+// newsTimeout bounds a news tick, its request included: under the 5-minute
+// schedule, so a tick never runs into the next.
+const newsTimeout = 4 * time.Minute
+
 // RegisterAll returns all scheduled job definitions.
 // To add a new job, append a JobDef here — no other changes needed.
 func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Logger) []scheduler.JobDef {
@@ -90,6 +94,13 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 			Reporter: rep,
 		}
 	}
+
+	// The news tick answers once its reads are stored, which can take most of the
+	// job's four minutes: its requests get that long (not REQUEST_TIMEOUT), and a
+	// tick whose pipeline failed is reported failed though it answered 200.
+	news := trigger("news", "/v1/internal/pipelines/news")
+	news.Client = client.WithRequestTimeout(newsTimeout)
+	news.CheckStatus = true
 
 	return []scheduler.JobDef{
 		{
@@ -159,8 +170,8 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 			Name:      "news",
 			Schedule:  "*/5 * * * *", // every 5 minutes; the endpoint answers when the tick's reads are stored
 			Singleton: true,
-			Timeout:   4 * time.Minute,
-			Task:      trigger("news", "/v1/internal/pipelines/news"),
+			Timeout:   newsTimeout,
+			Task:      news,
 		},
 	}
 }

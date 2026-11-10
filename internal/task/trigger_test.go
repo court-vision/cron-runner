@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -126,5 +128,64 @@ func TestRunCorrelationID(t *testing.T) {
 	}
 	if got := logged["trigger_failed"]; got != headers[1] {
 		t.Errorf("trigger_failed logged correlation_id %q, request sent %q", got, headers[1])
+	}
+}
+
+// TestRunCheckStatus: with CheckStatus, a 200 whose body says status "error" (a
+// pipeline that ran and failed) is a failed run; without it, any 2xx succeeds.
+func TestRunCheckStatus(t *testing.T) {
+	bodies := []string{
+		`{"status":"error","message":"News Feed failed: ESPN timed out","data":null}`,
+		`{"status":"success","message":"stored 4","data":{}}`,
+		`not json`,
+	}
+	var mu sync.Mutex
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		body := bodies[n%len(bodies)]
+		n++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+
+	log := zerolog.New(io.Discard)
+	cfg := &config.Config{
+		BackendURL:     srv.URL,
+		PipelineAuth:   "test-token",
+		MaxRetries:     0,
+		InitialBackoff: time.Millisecond,
+		MaxBackoff:     time.Millisecond,
+		BackoffFactor:  1,
+		RequestTimeout: time.Second,
+	}
+	tt := &TriggerTask{Client: pipeline.NewClient(cfg, log), Endpoint: "/v1/internal/pipelines/news", Log: log}
+
+	// Without the check, the failed pipeline's 200 reads as success
+	if err := tt.Run(context.Background()); err != nil {
+		t.Fatalf("without CheckStatus: unexpected error: %v", err)
+	}
+	tt.CheckStatus = true
+	err := tt.Run(context.Background()) // body 2: success
+	if err != nil {
+		t.Fatalf("status success: unexpected error: %v", err)
+	}
+	if err := tt.Run(context.Background()); err != nil { // body 3: not the envelope
+		t.Fatalf("a body that isn't the envelope: unexpected error: %v", err)
+	}
+	err = tt.Run(context.Background()) // body 1 again: error
+	if err == nil || !strings.Contains(err.Error(), "ESPN timed out") {
+		t.Fatalf("status error: want a failure naming the message, got %v", err)
+	}
+}
+
+func TestWithRequestTimeoutLeavesTheOriginal(t *testing.T) {
+	cfg := &config.Config{BackendURL: "http://data.test", RequestTimeout: 30 * time.Second}
+	base := pipeline.NewClient(cfg, zerolog.New(io.Discard))
+	long := base.WithRequestTimeout(4 * time.Minute)
+	if base.RequestTimeout() != 30*time.Second || long.RequestTimeout() != 4*time.Minute {
+		t.Fatalf("timeouts = %v / %v, want 30s / 4m", base.RequestTimeout(), long.RequestTimeout())
 	}
 }

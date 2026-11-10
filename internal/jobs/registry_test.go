@@ -100,6 +100,18 @@ func TestRegisterAllDefinitions(t *testing.T) {
 		}
 		if tt.Client == nil || tt.Reporter == nil {
 			t.Errorf("%s: client/reporter not wired", want.name)
+			continue
+		}
+		// Every job but news uses REQUEST_TIMEOUT (a second here) and trusts a 2xx
+		wantRequest, wantCheck := time.Second, false
+		if want.name == "news" {
+			wantRequest, wantCheck = want.timeout, true
+		}
+		if got := tt.Client.RequestTimeout(); got != wantRequest {
+			t.Errorf("%s: request timeout = %v, want %v", want.name, got, wantRequest)
+		}
+		if tt.CheckStatus != wantCheck {
+			t.Errorf("%s: CheckStatus = %v, want %v", want.name, tt.CheckStatus, wantCheck)
 		}
 	}
 }
