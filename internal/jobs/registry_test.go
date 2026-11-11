@@ -46,7 +46,7 @@ var expected = []struct {
 	endpoint    string
 }{
 	{"pre-game", "0/15 13-23,0-1 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/pre-game"},
-	{"live-stats", "*/30 * 16-23,0-7 * * *", true, true, 0, "/v1/internal/pipelines/live-stats"},
+	{"live-stats", "*/15 * 16-23,0-7 * * *", true, true, 0, "/v1/internal/pipelines/live-stats"},
 	{"post-game", "0/15 2-13 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/post-game"},
 	{"schedule-sync", "0 12 * * 1", false, true, 5 * time.Minute, "/v1/internal/pipelines/game-start-times?source=cdn"},
 	{"playoffs", "0 6 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/playoffs"},
@@ -149,9 +149,12 @@ func TestScheduleNextFire(t *testing.T) {
 		{"pre-game", utc(2026, time.December, 25, 2, 0, 0), utc(2026, time.December, 25, 13, 0, 0)},
 		{"pre-game", utc(2026, time.December, 25, 23, 50, 0), utc(2026, time.December, 26, 0, 0, 0)},
 		{"pre-game", utc(2026, time.December, 26, 1, 45, 0), utc(2026, time.December, 26, 13, 0, 0)},
-		// live-stats: 30-second cadence, quiet 08:00–15:59 UTC.
-		{"live-stats", utc(2026, time.November, 1, 16, 0, 0), utc(2026, time.November, 1, 16, 0, 30)},
-		{"live-stats", utc(2026, time.November, 1, 7, 59, 30), utc(2026, time.November, 1, 16, 0, 0)},
+		// live-stats: 15-second cadence, quiet 08:00–15:59 UTC.
+		{"live-stats", utc(2026, time.November, 1, 16, 0, 0), utc(2026, time.November, 1, 16, 0, 15)},
+		{"live-stats", utc(2026, time.November, 1, 16, 0, 15), utc(2026, time.November, 1, 16, 0, 30)},
+		{"live-stats", utc(2026, time.November, 1, 23, 59, 45), utc(2026, time.November, 2, 0, 0, 0)},
+		{"live-stats", utc(2026, time.November, 1, 7, 59, 30), utc(2026, time.November, 1, 7, 59, 45)},
+		{"live-stats", utc(2026, time.November, 1, 7, 59, 45), utc(2026, time.November, 1, 16, 0, 0)},
 		// post-game: 02:00–13:45 UTC.
 		{"post-game", utc(2026, time.November, 1, 1, 50, 0), utc(2026, time.November, 1, 2, 0, 0)},
 		{"post-game", utc(2026, time.November, 1, 13, 45, 0), utc(2026, time.November, 2, 2, 0, 0)},
