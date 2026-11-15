@@ -78,6 +78,14 @@ import (
 //	               into nba.news_items; new items about rostered players go to
 //	               Dime's event check-ins. Every 5 minutes, all day; the
 //	               data-platform counts ticks in 5-minute slots, so keep */5.
+//	daily-rankings  Court Vision's two standard boards and ESPN's ranks, stored
+//	               once a morning in nba.daily_rankings. Hourly 10:00–16:00 UTC
+//	               (6 AM–noon EDT / 5–11 AM EST). The endpoint skips outside the
+//	               regular season and once the day is stored, so a normal morning
+//	               is one run and six one-query skips. The later ticks are the
+//	               retries: a tick before last night's box scores have landed
+//	               answers that it is waiting, and from 10 AM ET the endpoint
+//	               stores what there is, so keep the window open past 15:00 UTC.
 
 // newsTimeout bounds a news tick, its request included: under the 5-minute
 // schedule, so a tick never runs into the next.
@@ -175,6 +183,13 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 			Singleton: true,
 			Timeout:   newsTimeout,
 			Task:      news,
+		},
+		{
+			Name:      "daily-rankings",
+			Schedule:  "0 10-16 * * *", // hourly 10:00–16:00 UTC = 6 AM–noon EDT / 5–11 AM EST; the endpoint skips once the day is stored
+			Singleton: true,
+			Timeout:   5 * time.Minute,
+			Task:      trigger("daily-rankings", "/v1/internal/pipelines/daily-rankings"),
 		},
 	}
 }

@@ -55,6 +55,7 @@ var expected = []struct {
 	{"availability", "*/2 * * * *", false, true, 2 * time.Minute, "/v1/internal/pipelines/availability"},
 	{"dime-checkins", "*/15 * * * *", false, true, 2 * time.Minute, "/v1/internal/pipelines/dime-checkins"},
 	{"news", "*/5 * * * *", false, true, 4 * time.Minute, "/v1/internal/pipelines/news"},
+	{"daily-rankings", "0 10-16 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/daily-rankings"},
 }
 
 func TestRegisterAllDefinitions(t *testing.T) {
