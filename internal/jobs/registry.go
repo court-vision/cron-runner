@@ -30,10 +30,13 @@ import (
 //	               opens 150 min before the first tip of the NBA date. Every
 //	               15 min 13:00–01:45 UTC (9 AM–9:45 PM EDT / 8 AM–8:45 PM EST),
 //	               early enough for a noon-ET holiday matinee in either offset.
-//	live-stats     Live box scores → nba.live_player_stats. Every 30 s
+//	live-stats     Live box scores → nba.live_player_stats. Every 15 s
 //	               16:00–07:59 UTC (noon–3:59 AM EDT / 11 AM–2:59 AM EST) so late
 //	               West-coast finishes are covered in EST. The endpoint no-ops
-//	               until 15 min before the first tip.
+//	               until 15 min before the first tip. NBA's box score files move
+//	               every 10 s or faster, so a shorter tick would mostly re-read
+//	               the same file; a run that outlasts its tick skips the next
+//	               one (Singleton).
 //	post-game      Game logs, season/rolling/advanced stats, ownership, matchup
 //	               scores, schedule. The endpoint runs only inside a window that
 //	               opens 150 min after the latest tip and lasts 210 min, once all
@@ -112,7 +115,7 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 		},
 		{
 			Name:        "live-stats",
-			Schedule:    "*/30 * 16-23,0-7 * * *",
+			Schedule:    "*/15 * 16-23,0-7 * * *",
 			WithSeconds: true,
 			Singleton:   true,
 			Task:        trigger("live-stats", "/v1/internal/pipelines/live-stats"),

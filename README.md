@@ -53,7 +53,7 @@ All schedules are evaluated in **UTC** (`gocron.WithLocation(time.UTC)`). NBA ga
 | Job | UTC schedule | Eastern equivalent | Endpoint (`POST`) | Data-platform gate |
 |---|---|---|---|---|
 | `pre-game` | `0/15 13-23,0-1 * * *` | every 15 min, 9:00 AM–9:45 PM EDT (8:00 AM–8:45 PM EST) | `/v1/internal/pipelines/pre-game` | No-op unless games today and now ≥ first tip − 150 min; per-pipeline dedup (once per NBA date) and concurrency check. Returns at once; pipelines run in the background. |
-| `live-stats` | `*/30 * 16-23,0-7 * * *` (6-field) | every 30 s, noon–3:59 AM EDT (11:00 AM–2:59 AM EST) | `/v1/internal/pipelines/live-stats` | No-op unless games today and within 15 min of the first tip; runs in milliseconds otherwise. Falls back to the live scoreboard for playoff dates missing from `nba.games`. |
+| `live-stats` | `*/15 * 16-23,0-7 * * *` (6-field) | every 15 s, noon–3:59 AM EDT (11:00 AM–2:59 AM EST) | `/v1/internal/pipelines/live-stats` | No-op unless games today and within 15 min of the first tip; runs in milliseconds otherwise. Falls back to the live scoreboard for playoff dates missing from `nba.games`. |
 | `post-game` | `0/15 2-13 * * *` | every 15 min, 10:00 PM–9:45 AM EDT (9:00 PM–8:45 AM EST) | `/v1/internal/pipelines/post-game` | Only inside a window that opens 150 min after the latest tip and lasts 210 min, and only once every game is Final. Per-pipeline dedup; ESPN-gated pipelines wait for ESPN's scoring period to advance (2:30 AM CST fallback). |
 | `schedule-sync` | `0 12 * * 1` | Mondays 8:00 AM EDT (7:00 AM EST) | `/v1/internal/pipelines/game-start-times?source=cdn` | None on the cron side — an idempotent upsert of future `nba.games` rows (tip-off times, moved/postponed games) from the NBA CDN feed. |
 | `playoffs` | `0 6 * * *` | daily 2:00 AM EDT (1:00 AM EST) | `/v1/internal/pipelines/playoffs` | None on the cron side — upserts `nba.playoff_series` from NBA SeriesStandings. |
@@ -141,9 +141,9 @@ Scheduler uptime plus the runtime state of every registered job — `next_run` f
   "jobs": [
     {
       "name": "live-stats",
-      "schedule": "*/30 * 16-23,0-7 * * *",
+      "schedule": "*/15 * 16-23,0-7 * * *",
       "last_run": "2026-11-01T02:15:30.412Z",
-      "next_run": "2026-11-01T02:16:00Z",
+      "next_run": "2026-11-01T02:15:45Z",
       "last_result": "success",
       "last_duration": "212ms",
       "run_count": 1234,
