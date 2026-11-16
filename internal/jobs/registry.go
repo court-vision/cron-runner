@@ -78,8 +78,11 @@ import (
 //	               into nba.news_items; new items about rostered players go to
 //	               Dime's event check-ins. Every 5 minutes, all day; the
 //	               data-platform counts ticks in 5-minute slots, so keep */5.
-//	daily-rankings  Court Vision's two standard boards and ESPN's ranks, stored
-//	               once a morning in nba.daily_rankings. Hourly 10:00–16:00 UTC
+//	daily-rankings  The morning's live projection (every player's line for each
+//	               game left, nba.player_projections source cv_live), then
+//	               Court Vision's two standard boards built on it and ESPN's
+//	               ranks, stored once a morning in nba.daily_rankings. One
+//	               endpoint runs both, in that order. Hourly 10:00–16:00 UTC
 //	               (6 AM–noon EDT / 5–11 AM EST). The endpoint skips outside the
 //	               regular season and once the day is stored, so a normal morning
 //	               is one run and six one-query skips. The later ticks are the
