@@ -56,6 +56,7 @@ var expected = []struct {
 	{"dime-checkins", "*/15 * * * *", false, true, 2 * time.Minute, "/v1/internal/pipelines/dime-checkins"},
 	{"news", "*/5 * * * *", false, true, 4 * time.Minute, "/v1/internal/pipelines/news"},
 	{"daily-rankings", "0 10-16 * * *", false, true, 5 * time.Minute, "/v1/internal/pipelines/daily-rankings"},
+	{"dime-asks", "* * * * *", false, true, 2 * time.Minute, "/v1/internal/pipelines/dime-asks"},
 }
 
 func TestRegisterAllDefinitions(t *testing.T) {
@@ -179,6 +180,10 @@ func TestScheduleNextFire(t *testing.T) {
 		{"news", utc(2026, time.November, 1, 12, 0, 0), utc(2026, time.November, 1, 12, 5, 0)},
 		{"news", utc(2026, time.November, 1, 12, 7, 30), utc(2026, time.November, 1, 12, 10, 0)},
 		{"news", utc(2026, time.November, 1, 23, 58, 0), utc(2026, time.November, 2, 0, 0, 0)},
+		// dime-asks: every minute, no quiet hours (an ask is saved to the minute).
+		{"dime-asks", utc(2026, time.November, 1, 12, 0, 30), utc(2026, time.November, 1, 12, 1, 0)},
+		{"dime-asks", utc(2026, time.November, 2, 2, 29, 0), utc(2026, time.November, 2, 2, 30, 0)},
+		{"dime-asks", utc(2026, time.November, 1, 23, 59, 0), utc(2026, time.November, 2, 0, 0, 0)},
 	}
 
 	for _, c := range cases {
