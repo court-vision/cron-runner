@@ -89,6 +89,13 @@ import (
 //	               retries: a tick before last night's box scores have landed
 //	               answers that it is waiting, and from 10 AM ET the endpoint
 //	               stores what there is, so keep the window open past 15:00 UTC.
+//	dime-asks      What users asked Dime to do at a time ("at 6:30 tonight, check
+//	               whether he plays"): the endpoint asks the backend to start each
+//	               ask that is due, once, as a check-in of its own (one Dime turn
+//	               on the check-ins budget). Every minute, all day: an ask is saved
+//	               to the minute, so it starts in its minute. An idle tick is one
+//	               EXISTS query on the data-platform side, and the turns run on in
+//	               the backend.
 
 // newsTimeout bounds a news tick, its request included: under the 5-minute
 // schedule, so a tick never runs into the next.
@@ -193,6 +200,13 @@ func RegisterAll(client *pipeline.Client, rep *reporter.Reporter, log zerolog.Lo
 			Singleton: true,
 			Timeout:   5 * time.Minute,
 			Task:      trigger("daily-rankings", "/v1/internal/pipelines/daily-rankings"),
+		},
+		{
+			Name:      "dime-asks",
+			Schedule:  "* * * * *", // every minute; the endpoint no-ops unless an ask is due
+			Singleton: true,
+			Timeout:   2 * time.Minute,
+			Task:      trigger("dime-asks", "/v1/internal/pipelines/dime-asks"),
 		},
 	}
 }
